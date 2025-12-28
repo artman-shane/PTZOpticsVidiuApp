@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>PTZ Controller</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.2/nipplejs.min.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col select-none">
+  <!-- Header -->
+  <header class="bg-gray-800 px-4 py-3 flex items-center justify-between shadow-lg">
+    <h1 class="text-lg font-semibold">PTZ Controller</h1>
+    <div class="flex items-center gap-3">
+      <span id="connection-status" class="w-3 h-3 rounded-full bg-yellow-500" title="Connecting..."></span>
+      <button id="settings-btn" class="p-2 hover:bg-gray-700 rounded-lg transition">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 flex flex-col p-3 gap-3 max-w-lg mx-auto w-full">
+    <!-- Video Container -->
+    <div class="relative bg-black rounded-lg overflow-hidden shadow-xl" style="aspect-ratio: 16/9;">
+      <iframe
+        id="video-frame"
+        class="w-full h-full"
+        allow="autoplay"
+        allowfullscreen
+      ></iframe>
+      <div id="video-loading" class="absolute inset-0 flex items-center justify-center bg-gray-800">
+        <div class="text-center">
+          <div class="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+          <p class="text-gray-400 text-sm">Connecting to camera...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zoom Control -->
+    <div class="bg-gray-800 rounded-lg p-3 flex items-center gap-3">
+      <button id="zoom-out-btn" class="zoom-btn p-3 bg-gray-700 hover:bg-gray-600 rounded-lg active:bg-blue-600 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"></path>
+        </svg>
+      </button>
+      <div class="flex-1 relative">
+        <input
+          type="range"
+          id="zoom-slider"
+          min="0"
+          max="100"
+          value="50"
+          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+        >
+        <span id="zoom-label" class="absolute -top-5 left-1/2 -translate-x-1/2 text-xs text-gray-400">Zoom</span>
+      </div>
+      <button id="zoom-in-btn" class="zoom-btn p-3 bg-gray-700 hover:bg-gray-600 rounded-lg active:bg-blue-600 transition">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- PTZ Joystick -->
+    <div class="bg-gray-800 rounded-lg p-4 flex flex-col items-center">
+      <div id="joystick-zone" class="w-44 h-44 relative">
+        <!-- NippleJS will render here -->
+      </div>
+      <p class="text-xs text-gray-500 mt-2">Pan & Tilt</p>
+      <!-- Speed Control -->
+      <div class="w-full mt-3 pt-3 border-t border-gray-700">
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-gray-400 w-12">Speed</span>
+          <input
+            type="range"
+            id="speed-slider"
+            min="10"
+            max="100"
+            value="50"
+            class="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          >
+          <span id="speed-value" class="text-xs text-gray-400 w-8 text-right">50%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Presets -->
+    <div class="bg-gray-800 rounded-lg p-3">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm text-gray-400">Presets</span>
+        <button id="home-btn" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded transition">
+          Home
+        </button>
+      </div>
+      <div id="preset-grid" class="grid grid-cols-6 gap-2">
+        <!-- Preset buttons generated by JS -->
+      </div>
+    </div>
+
+    <!-- Vidiu Control -->
+    <div class="bg-gray-800 rounded-lg p-3">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium">Vidiu</span>
+          <span id="vidiu-connection-status" class="w-2 h-2 rounded-full bg-gray-500"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="vidiu-bitrate" class="text-xs text-gray-400">--</span>
+          <button id="vidiu-stream-btn" class="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-50">
+            Go Live
+          </button>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-400">Destination:</span>
+        <select id="vidiu-destination" class="flex-1 bg-gray-700 rounded px-2 py-1 text-sm">
+          <option value="">-- Select --</option>
+        </select>
+      </div>
+      <div id="vidiu-status-text" class="text-xs text-gray-500 mt-2">Not connected</div>
+    </div>
+
+    <!-- Quick Settings Tabs -->
+    <div class="bg-gray-800 rounded-lg overflow-hidden">
+      <div class="flex border-b border-gray-700">
+        <button class="settings-tab flex-1 py-2 text-sm transition active" data-tab="focus">Focus</button>
+        <button class="settings-tab flex-1 py-2 text-sm transition" data-tab="exposure">Exposure</button>
+        <button class="settings-tab flex-1 py-2 text-sm transition" data-tab="wb">White Balance</button>
+      </div>
+
+      <!-- Focus Panel -->
+      <div id="focus-panel" class="settings-panel p-4">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-sm">Mode</span>
+          <div class="flex gap-2">
+            <button id="focus-auto-btn" class="mode-btn px-3 py-1 text-sm rounded bg-blue-600">Auto</button>
+            <button id="focus-manual-btn" class="mode-btn px-3 py-1 text-sm rounded bg-gray-700 hover:bg-gray-600">Manual</button>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="focus-near-btn" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition active:bg-blue-600">
+            Near
+          </button>
+          <button id="focus-far-btn" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition active:bg-blue-600">
+            Far
+          </button>
+          <button id="focus-onepush-btn" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition active:bg-blue-600">
+            One Push
+          </button>
+        </div>
+      </div>
+
+      <!-- Exposure Panel -->
+      <div id="exposure-panel" class="settings-panel p-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-sm">Mode</span>
+          <select id="exposure-mode" class="bg-gray-700 rounded px-2 py-1 text-sm">
+            <option value="auto">Auto</option>
+            <option value="manual">Manual</option>
+            <option value="shutter">Shutter Priority</option>
+            <option value="iris">Iris Priority</option>
+            <option value="bright">Brightness</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="text-center">
+            <span class="text-xs text-gray-400 block mb-2">Gain</span>
+            <div class="flex gap-1">
+              <button class="adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-action="gain" data-dir="down">-</button>
+              <button class="adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-action="gain" data-dir="up">+</button>
+            </div>
+          </div>
+          <div class="text-center">
+            <span class="text-xs text-gray-400 block mb-2">Shutter</span>
+            <div class="flex gap-1">
+              <button class="adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-action="shutter" data-dir="down">-</button>
+              <button class="adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-action="shutter" data-dir="up">+</button>
+            </div>
+          </div>
+          <div class="text-center">
+            <span class="text-xs text-gray-400 block mb-2">Iris</span>
+            <div class="flex gap-1">
+              <button class="adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-action="iris" data-dir="down">-</button>
+              <button class="adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-action="iris" data-dir="up">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center justify-between">
+          <span class="text-sm">Backlight Comp</span>
+          <button id="backlight-toggle" class="w-12 h-6 bg-gray-700 rounded-full relative transition">
+            <span class="absolute left-1 top-1 w-4 h-4 bg-gray-400 rounded-full transition"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- White Balance Panel -->
+      <div id="wb-panel" class="settings-panel p-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-sm">Mode</span>
+          <select id="wb-mode" class="bg-gray-700 rounded px-2 py-1 text-sm">
+            <option value="auto">Auto</option>
+            <option value="indoor">Indoor</option>
+            <option value="outdoor">Outdoor</option>
+            <option value="onepush">One Push</option>
+            <option value="manual">Manual</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="text-center">
+            <span class="text-xs text-gray-400 block mb-2">Red Gain</span>
+            <div class="flex gap-1">
+              <button class="wb-adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-color="red" data-dir="down">-</button>
+              <button class="wb-adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-color="red" data-dir="up">+</button>
+            </div>
+          </div>
+          <div class="text-center">
+            <span class="text-xs text-gray-400 block mb-2">Blue Gain</span>
+            <div class="flex gap-1">
+              <button class="wb-adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-color="blue" data-dir="down">-</button>
+              <button class="wb-adjust-btn flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm" data-color="blue" data-dir="up">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-gray-800 rounded-xl w-full max-w-md p-6 my-4">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-semibold">Settings</h2>
+        <button id="close-settings" class="p-2 hover:bg-gray-700 rounded-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <!-- Device Discovery -->
+        <div class="border border-gray-700 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-sm font-medium">Device Discovery</span>
+            <button id="scan-network-btn" class="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded transition">
+              Scan Network
+            </button>
+          </div>
+          <div id="scan-status" class="text-xs text-gray-400 mb-2 hidden">Scanning...</div>
+          <div id="scan-progress" class="w-full h-1 bg-gray-700 rounded hidden mb-2">
+            <div id="scan-progress-bar" class="h-full bg-blue-500 rounded transition-all" style="width: 0%"></div>
+          </div>
+          <div id="discovered-devices" class="space-y-2">
+            <!-- Discovered devices will appear here -->
+          </div>
+        </div>
+
+        <!-- PTZ Camera -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">PTZ Camera IP</label>
+          <div class="flex gap-2">
+            <input id="camera-ip-input" type="text" class="flex-1 bg-gray-700 rounded px-3 py-2 text-sm" placeholder="192.168.108.20">
+            <span id="camera-status" class="flex items-center px-2 text-xs rounded bg-gray-700">--</span>
+          </div>
+        </div>
+
+        <!-- Vidiu -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Vidiu IP</label>
+          <div class="flex gap-2">
+            <input id="vidiu-ip-input" type="text" class="flex-1 bg-gray-700 rounded px-3 py-2 text-sm" placeholder="192.168.108.21">
+            <span id="vidiu-status" class="flex items-center px-2 text-xs rounded bg-gray-700">--</span>
+          </div>
+        </div>
+
+        <!-- MediaMTX Port -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">MediaMTX WebRTC Port</label>
+          <input id="mediamtx-port-input" type="text" class="w-full bg-gray-700 rounded px-3 py-2 text-sm" placeholder="8889">
+        </div>
+
+        <!-- Preset Count -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Number of Presets</label>
+          <select id="preset-count" class="w-full bg-gray-700 rounded px-3 py-2 text-sm">
+            <option value="6">6</option>
+            <option value="9">9</option>
+            <option value="12" selected>12</option>
+          </select>
+        </div>
+
+        <button id="save-settings" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition">
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preset Edit Modal -->
+  <div id="preset-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-xl w-full max-w-sm p-6">
+      <h2 class="text-lg font-semibold mb-4">Preset <span id="preset-number">1</span></h2>
+      <div id="preset-main-view" class="space-y-3">
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Label</label>
+          <input id="preset-name-input" type="text" class="w-full bg-gray-700 rounded px-3 py-2 text-sm" placeholder="e.g. Wide Shot, Pulpit, etc.">
+        </div>
+        <button id="save-preset-name" class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+          Save Label
+        </button>
+        <button id="save-preset-position" class="w-full py-2 bg-amber-600 hover:bg-amber-700 rounded-lg text-sm font-medium transition">
+          Save Current Camera Position...
+        </button>
+        <button id="call-preset" class="w-full py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition">
+          Go to Preset
+        </button>
+        <button id="close-preset-modal" class="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
+          Cancel
+        </button>
+      </div>
+      <!-- Confirmation View -->
+      <div id="preset-confirm-view" class="space-y-3 hidden">
+        <div class="bg-amber-900/50 border border-amber-600 rounded-lg p-3">
+          <p class="text-sm text-amber-200 font-medium mb-1">Confirm Position Save</p>
+          <p class="text-xs text-amber-300/80">This will overwrite the saved position for Preset <span id="confirm-preset-number">1</span>. This action cannot be undone.</p>
+        </div>
+        <button id="confirm-save-position" class="w-full py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition">
+          Yes, Save Position
+        </button>
+        <button id="cancel-save-position" class="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Destination Change Confirmation Modal -->
+  <div id="destination-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-xl w-full max-w-sm p-6">
+      <h2 class="text-lg font-semibold mb-4">Change Destination</h2>
+      <div class="bg-amber-900/50 border border-amber-600 rounded-lg p-3 mb-4">
+        <p class="text-sm text-amber-200">Change streaming destination to:</p>
+        <p id="new-destination-name" class="text-lg font-medium mt-1">YouTube</p>
+      </div>
+      <div class="space-y-2">
+        <button id="confirm-destination" class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+          Confirm Change
+        </button>
+        <button id="cancel-destination" class="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
