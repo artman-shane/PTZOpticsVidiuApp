@@ -104,27 +104,199 @@
       </div>
     </div>
 
-    <!-- Vidiu Control -->
-    <div class="bg-gray-800 rounded-lg p-3">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-medium">Vidiu</span>
-          <span id="vidiu-connection-status" class="w-2 h-2 rounded-full bg-gray-500"></span>
+    <!-- Vidiu Control - Expanded -->
+    <div class="bg-gray-800 rounded-lg overflow-hidden">
+      <!-- Header with status -->
+      <div class="p-3 border-b border-gray-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium">Vidiu</span>
+            <span id="vidiu-connection-status" class="w-2 h-2 rounded-full bg-gray-500"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="vidiu-bitrate" class="text-xs text-gray-400">--</span>
+            <span id="vidiu-uptime" class="text-xs text-gray-400 hidden">--</span>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <span id="vidiu-bitrate" class="text-xs text-gray-400">--</span>
-          <button id="vidiu-stream-btn" class="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-50">
+        <div id="vidiu-status-text" class="text-xs text-gray-500 mt-1">Not connected</div>
+      </div>
+
+      <!-- Vidiu Tabs -->
+      <div class="flex border-b border-gray-700">
+        <button class="vidiu-tab flex-1 py-2 text-xs transition active" data-tab="vidiu-control">Control</button>
+        <button class="vidiu-tab flex-1 py-2 text-xs transition" data-tab="vidiu-encoder">Encoder</button>
+        <button class="vidiu-tab flex-1 py-2 text-xs transition" data-tab="vidiu-mode">Mode</button>
+        <button class="vidiu-tab flex-1 py-2 text-xs transition" data-tab="vidiu-advanced">Advanced</button>
+      </div>
+
+      <!-- Control Panel -->
+      <div id="vidiu-control-panel" class="vidiu-panel p-3">
+        <!-- Broadcast Selection -->
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-xs text-gray-400 whitespace-nowrap">Broadcast:</span>
+          <select id="vidiu-broadcast" class="flex-1 min-w-0 bg-gray-700 rounded px-2 py-1.5 text-sm">
+            <option value="">-- Select --</option>
+          </select>
+          <button id="vidiu-refresh-btn" class="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition flex-shrink-0" title="Refresh broadcasts">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+          </button>
+        </div>
+        <!-- Preview/Broadcast Controls -->
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <button id="vidiu-preview-btn" class="py-2 text-sm bg-yellow-600 hover:bg-yellow-700 rounded transition disabled:opacity-50">
+            Preview
+          </button>
+          <button id="vidiu-stream-btn" class="py-2 text-sm bg-green-600 hover:bg-green-700 rounded transition disabled:opacity-50">
             Go Live
           </button>
         </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="vidiu-endpreview-btn" class="py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition disabled:opacity-50 hidden">
+            End Preview
+          </button>
+          <button id="vidiu-complete-btn" class="py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition disabled:opacity-50 hidden">
+            Complete
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-gray-400">Destination:</span>
-        <select id="vidiu-destination" class="flex-1 bg-gray-700 rounded px-2 py-1 text-sm">
-          <option value="">-- Select --</option>
-        </select>
+
+      <!-- Encoder Panel -->
+      <div id="vidiu-encoder-panel" class="vidiu-panel p-3 hidden">
+        <div class="space-y-4">
+          <!-- Video Settings -->
+          <div>
+            <span class="text-xs text-gray-400 block mb-2">Video Encoder</span>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs text-gray-500">Resolution</label>
+                <select id="vidiu-resolution" class="w-full bg-gray-700 rounded px-2 py-1 text-sm mt-1">
+                  <option value="1920x1080">1080p (1920x1080)</option>
+                  <option value="1280x720">720p (1280x720)</option>
+                  <option value="854x480">480p (854x480)</option>
+                  <option value="640x360">360p (640x360)</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500">Bitrate (kbps)</label>
+                <input id="vidiu-video-bitrate" type="number" class="w-full bg-gray-700 rounded px-2 py-1 text-sm mt-1" value="4500" min="500" max="20000" step="100">
+              </div>
+            </div>
+            <div class="mt-2">
+              <label class="text-xs text-gray-500">Codec</label>
+              <select id="vidiu-codec" class="w-full bg-gray-700 rounded px-2 py-1 text-sm mt-1">
+                <option value="H.264">H.264 (AVC)</option>
+                <option value="H.265">H.265 (HEVC)</option>
+              </select>
+            </div>
+          </div>
+          <!-- Audio Settings -->
+          <div>
+            <span class="text-xs text-gray-400 block mb-2">Audio Encoder</span>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs text-gray-500">Bitrate (kbps)</label>
+                <select id="vidiu-audio-bitrate" class="w-full bg-gray-700 rounded px-2 py-1 text-sm mt-1">
+                  <option value="64">64 kbps</option>
+                  <option value="96">96 kbps</option>
+                  <option value="128" selected>128 kbps</option>
+                  <option value="192">192 kbps</option>
+                  <option value="256">256 kbps</option>
+                  <option value="320">320 kbps</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500">Volume</label>
+                <input id="vidiu-audio-volume" type="range" class="w-full mt-3" min="0" max="100" value="100">
+              </div>
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+              <input id="vidiu-audio-mute" type="checkbox" class="rounded">
+              <label for="vidiu-audio-mute" class="text-xs text-gray-400">Mute Stream Audio</label>
+            </div>
+          </div>
+          <button id="vidiu-save-encoder" class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm transition">
+            Apply Encoder Settings
+          </button>
+        </div>
       </div>
-      <div id="vidiu-status-text" class="text-xs text-gray-500 mt-2">Not connected</div>
+
+      <!-- Mode Panel -->
+      <div id="vidiu-mode-panel" class="vidiu-panel p-3 hidden">
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-gray-400 block mb-2">Streaming Mode</label>
+            <select id="vidiu-mode-select" class="w-full bg-gray-700 rounded px-2 py-1 text-sm">
+              <option value="YouTubeLive">YouTube Live</option>
+              <option value="Facebook">Facebook Live</option>
+              <option value="Twitch">Twitch</option>
+              <option value="RTMP">Custom RTMP</option>
+              <option value="Wowza">Wowza</option>
+              <option value="Core">Core</option>
+            </select>
+          </div>
+          <!-- YouTube Settings -->
+          <div id="youtube-settings" class="space-y-2">
+            <span class="text-xs text-gray-400 block">YouTube Settings</span>
+            <div class="flex items-center gap-2">
+              <input id="vidiu-yt-adaptive" type="checkbox" class="rounded" checked>
+              <label for="vidiu-yt-adaptive" class="text-xs text-gray-400">Adaptive Bitrate</label>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="vidiu-yt-reconnect" type="checkbox" class="rounded" checked>
+              <label for="vidiu-yt-reconnect" class="text-xs text-gray-400">Auto Reconnect</label>
+            </div>
+          </div>
+          <!-- RTMP Settings -->
+          <div id="rtmp-settings" class="space-y-2 hidden">
+            <span class="text-xs text-gray-400 block">RTMP Settings</span>
+            <div>
+              <label class="text-xs text-gray-500">Server URL</label>
+              <input id="vidiu-rtmp-url" type="text" class="w-full bg-gray-700 rounded px-2 py-1 text-sm mt-1" placeholder="rtmp://server/app">
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Stream Key</label>
+              <input id="vidiu-rtmp-key" type="password" class="w-full bg-gray-700 rounded px-2 py-1 text-sm mt-1" placeholder="Stream key">
+            </div>
+          </div>
+          <button id="vidiu-save-mode" class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm transition">
+            Apply Mode Settings
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced Panel -->
+      <div id="vidiu-advanced-panel" class="vidiu-panel p-3 hidden">
+        <div class="space-y-3">
+          <div class="text-xs text-gray-400 mb-2">Device Information</div>
+          <div class="bg-gray-700/50 rounded p-2 text-xs space-y-1">
+            <div class="flex justify-between">
+              <span class="text-gray-500">Mode:</span>
+              <span id="vidiu-current-mode" class="text-gray-300">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Account:</span>
+              <span id="vidiu-account-name" class="text-gray-300">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">State:</span>
+              <span id="vidiu-state" class="text-gray-300">--</span>
+            </div>
+          </div>
+          <div class="border-t border-gray-700 pt-3">
+            <span class="text-xs text-gray-400 block mb-2">Quick Actions</span>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="vidiu-halt-btn" class="py-1 text-xs bg-red-900 hover:bg-red-800 rounded transition">
+                Halt Stream
+              </button>
+              <button id="vidiu-reconnect-btn" class="py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition">
+                Reconnect
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Quick Settings Tabs -->
@@ -233,8 +405,8 @@
   </main>
 
   <!-- Settings Modal -->
-  <div id="settings-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
-    <div class="bg-gray-800 rounded-xl w-full max-w-md p-6 my-4">
+  <div id="settings-modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4" style="z-index: 9999;">
+    <div class="bg-gray-800 rounded-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto modal-content">
       <div class="flex items-center justify-between mb-6">
         <h2 class="text-lg font-semibold">Settings</h2>
         <button id="close-settings" class="p-2 hover:bg-gray-700 rounded-lg">
@@ -304,22 +476,55 @@
   </div>
 
   <!-- Preset Edit Modal -->
-  <div id="preset-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-gray-800 rounded-xl w-full max-w-sm p-6">
+  <div id="preset-modal" class="fixed inset-0 bg-black/90 hidden items-center justify-center p-4" style="z-index: 9999;">
+    <div class="bg-gray-800 rounded-xl w-full max-w-sm p-6 modal-content">
       <h2 class="text-lg font-semibold mb-4">Preset <span id="preset-number">1</span></h2>
-      <div id="preset-main-view" class="space-y-3">
+      <div id="preset-main-view" class="space-y-4">
+        <!-- Icon Selection -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-2">Icon</label>
+          <div id="preset-icons" class="grid grid-cols-8 gap-1">
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="">—</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="📷">📷</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🎤">🎤</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🎹">🎹</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🎵">🎵</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="👥">👥</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="✝️">✝️</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="📖">📖</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🙏">🙏</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🏠">🏠</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🔔">🔔</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="💒">💒</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🎼">🎼</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🎺">🎺</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="🪔">🪔</button>
+            <button type="button" class="preset-icon-btn p-2 text-xl rounded hover:bg-gray-700 transition" data-icon="⭐">⭐</button>
+          </div>
+        </div>
+        <!-- Label Input -->
         <div>
           <label class="block text-sm text-gray-400 mb-1">Label</label>
           <input id="preset-name-input" type="text" class="w-full bg-gray-700 rounded px-3 py-2 text-sm" placeholder="e.g. Wide Shot, Pulpit, etc.">
         </div>
-        <button id="save-preset-name" class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
-          Save Label
-        </button>
+        <!-- Preview -->
+        <div class="flex items-center justify-center p-3 bg-gray-700/50 rounded-lg">
+          <div class="flex items-center gap-2">
+            <span id="preset-preview-icon" class="text-2xl">—</span>
+            <span id="preset-preview-label" class="text-sm text-gray-300">No label</span>
+          </div>
+        </div>
+        <!-- Actions -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="save-preset-name" class="py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+            Save
+          </button>
+          <button id="call-preset" class="py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition">
+            Go to Preset
+          </button>
+        </div>
         <button id="save-preset-position" class="w-full py-2 bg-amber-600 hover:bg-amber-700 rounded-lg text-sm font-medium transition">
           Save Current Camera Position...
-        </button>
-        <button id="call-preset" class="w-full py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition">
-          Go to Preset
         </button>
         <button id="close-preset-modal" class="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
           Cancel
@@ -341,13 +546,13 @@
     </div>
   </div>
 
-  <!-- Destination Change Confirmation Modal -->
-  <div id="destination-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-gray-800 rounded-xl w-full max-w-sm p-6">
-      <h2 class="text-lg font-semibold mb-4">Change Destination</h2>
+  <!-- Broadcast Change Confirmation Modal -->
+  <div id="destination-modal" class="fixed inset-0 bg-black/90 hidden flex items-center justify-center p-4" style="z-index: 9999;">
+    <div class="bg-gray-800 rounded-xl w-full max-w-sm p-6 modal-content">
+      <h2 class="text-lg font-semibold mb-4">Change Broadcast</h2>
       <div class="bg-amber-900/50 border border-amber-600 rounded-lg p-3 mb-4">
-        <p class="text-sm text-amber-200">Change streaming destination to:</p>
-        <p id="new-destination-name" class="text-lg font-medium mt-1">YouTube</p>
+        <p class="text-sm text-amber-200">Switch to broadcast:</p>
+        <p id="new-destination-name" class="text-lg font-medium mt-1">Broadcast Name</p>
       </div>
       <div class="space-y-2">
         <button id="confirm-destination" class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">

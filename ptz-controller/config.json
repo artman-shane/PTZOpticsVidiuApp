@@ -2,17 +2,22 @@
   "camera": {
     "ip": "192.168.108.20",
     "rtspPort": 554,
+    "rtspPath": "/1",
     "viscaPort": 5678,
     "username": "admin",
     "password": "admin"
   },
   "vidiu": {
-    "ip": "192.168.108.21"
+    "ip": "192.168.108.21",
+    "username": "admin",
+    "password": "admin"
   },
   "server": {
     "port": 3005
   },
   "mediamtx": {
-    "webrtcPort": 8889
+    "webrtcPort": 8889,
+    "rtspPort": 8554,
+    "hlsPort": 8888
   }
 }

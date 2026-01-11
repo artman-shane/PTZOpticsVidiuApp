@@ -10,6 +10,32 @@ body {
   overscroll-behavior: none;
 }
 
+/* Modal open state - prevent body scroll */
+body.modal-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+/* Modal styling */
+#settings-modal,
+#preset-modal,
+#destination-modal {
+  backdrop-filter: blur(4px);
+}
+
+#settings-modal.flex,
+#preset-modal.flex,
+#destination-modal:not(.hidden) {
+  display: flex !important;
+}
+
+/* Ensure modal content doesn't propagate scroll to body */
+.modal-content {
+  overscroll-behavior: contain;
+}
+
 /* Joystick zone styling */
 #joystick-zone {
   touch-action: none;
@@ -25,6 +51,23 @@ body {
   color: #3b82f6;
   border-bottom-color: #3b82f6;
   background: rgba(59, 130, 246, 0.1);
+}
+
+/* Vidiu tabs */
+.vidiu-tab {
+  color: #9ca3af;
+  border-bottom: 2px solid transparent;
+}
+
+.vidiu-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.vidiu-tab:hover:not(.active) {
+  color: #d1d5db;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* Zoom slider custom styling */
@@ -54,11 +97,29 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.875rem;
+  font-size: 1.25rem;
   font-weight: 500;
   background: #374151;
   border-radius: 0.5rem;
   transition: all 0.15s;
+  overflow: hidden;
+  padding: 0.25rem;
+  text-align: center;
+  line-height: 1.1;
+  word-break: break-word;
+}
+
+/* Auto-size text based on length */
+.preset-btn.text-sm {
+  font-size: 0.65rem;
+}
+
+.preset-btn.text-md {
+  font-size: 0.85rem;
+}
+
+.preset-btn.text-lg {
+  font-size: 1.1rem;
 }
 
 .preset-btn:hover {
@@ -73,6 +134,29 @@ input[type="range"]::-moz-range-thumb {
 .preset-btn.has-name {
   background: #1e3a5f;
   border: 1px solid #3b82f6;
+}
+
+.preset-btn.has-icon {
+  font-size: 1.25rem;
+}
+
+/* Preset icon selection in modal */
+.preset-icon-btn {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.preset-icon-btn:hover {
+  background: #374151;
+}
+
+.preset-icon-btn.bg-blue-600 {
+  background: #2563eb;
+  border-color: #3b82f6;
 }
 
 /* Toggle switch */

@@ -14,6 +14,7 @@ let presets = {};
 let joystick = null;
 let isMoving = false;
 let currentPreset = null;
+let currentPresetIcon = ''; // Currently selected icon in modal
 let speedMultiplier = 0.5; // 0.1 to 1.0
 let vidiuStreaming = false;
 let pendingDestination = null;
@@ -34,8 +35,8 @@ const elements = {
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-  loadConfig();
-  loadPresets();
+  await loadConfig();
+  await loadPresets();
   setupVideo();
   setupJoystick();
   setupSpeedControl();
@@ -72,39 +73,125 @@ function setupSpeedControl() {
   });
 }
 
-// Load configuration from localStorage
-function loadConfig() {
+// Load configuration from server and localStorage
+async function loadConfig() {
+  // Load UI-only settings from localStorage
   const saved = localStorage.getItem('ptz-config');
   if (saved) {
-    config = { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+    const localConfig = JSON.parse(saved);
+    config.presetCount = localConfig.presetCount || DEFAULT_CONFIG.presetCount;
   }
+
+  // Load server settings
+  try {
+    const response = await fetch('/api/settings');
+    const data = await response.json();
+    if (data.success) {
+      config.cameraIP = data.data.camera.ip;
+      config.cameraUsername = data.data.camera.username;
+      config.cameraPassword = data.data.camera.password;
+      config.vidiuIP = data.data.vidiu.ip;
+      config.mediamtxPort = data.data.mediamtx.webrtcPort;
+    }
+  } catch (error) {
+    console.error('Failed to load settings from server:', error);
+  }
+
+  // Update UI
   document.getElementById('mediamtx-port-input').value = config.mediamtxPort;
   document.getElementById('preset-count').value = config.presetCount;
   document.getElementById('camera-ip-input').value = config.cameraIP || '';
   document.getElementById('vidiu-ip-input').value = config.vidiuIP || '';
 }
 
-// Save configuration to localStorage
-function saveConfig() {
+// Save configuration to server and localStorage
+async function saveConfig() {
+  const saveBtn = document.querySelector('#settings-modal button:last-child');
+  const originalText = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
+
   config.mediamtxPort = parseInt(document.getElementById('mediamtx-port-input').value) || 8889;
   config.presetCount = parseInt(document.getElementById('preset-count').value) || 12;
   config.cameraIP = document.getElementById('camera-ip-input').value.trim();
   config.vidiuIP = document.getElementById('vidiu-ip-input').value.trim();
-  localStorage.setItem('ptz-config', JSON.stringify(config));
+
+  // Save UI-only settings to localStorage
+  localStorage.setItem('ptz-config', JSON.stringify({
+    presetCount: config.presetCount
+  }));
+
+  // Save server settings
+  try {
+    const response = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        camera: {
+          ip: config.cameraIP
+        },
+        vidiu: {
+          ip: config.vidiuIP
+        },
+        mediamtx: {
+          webrtcPort: config.mediamtxPort
+        }
+      })
+    });
+    const data = await response.json();
+    if (data.success) {
+      console.log('Settings saved to server');
+      vibrate(30);
+    } else {
+      console.error('Failed to save settings:', data.error);
+      alert('Failed to save settings: ' + data.error);
+    }
+  } catch (error) {
+    console.error('Failed to save settings:', error);
+    alert('Failed to save settings: ' + error.message);
+  }
+
+  saveBtn.disabled = false;
+  saveBtn.textContent = originalText;
+
   setupVideo();
   setupPresets();
 }
 
-// Load presets from localStorage
-function loadPresets() {
-  const saved = localStorage.getItem('ptz-presets');
-  if (saved) {
-    presets = JSON.parse(saved);
+// Load presets from server
+async function loadPresets() {
+  try {
+    const response = await fetch('/api/presets');
+    const data = await response.json();
+    if (data.success) {
+      presets = data.data || {};
+    }
+  } catch (error) {
+    console.error('Failed to load presets from server:', error);
+    // Fallback to localStorage
+    const saved = localStorage.getItem('ptz-presets');
+    if (saved) {
+      presets = JSON.parse(saved);
+    }
   }
 }
 
-// Save presets to localStorage
-function savePresets() {
+// Save presets to server
+async function savePresets() {
+  try {
+    const response = await fetch('/api/presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(presets)
+    });
+    const data = await response.json();
+    if (!data.success) {
+      console.error('Failed to save presets:', data.error);
+    }
+  } catch (error) {
+    console.error('Failed to save presets to server:', error);
+  }
+  // Also save to localStorage as backup
   localStorage.setItem('ptz-presets', JSON.stringify(presets));
 }
 
@@ -141,6 +228,11 @@ async function checkConnection() {
 }
 
 // Setup virtual joystick
+// Joystick state
+let joystickActive = false;
+let lastMoveTime = 0;
+let stopTimeout = null;
+
 function setupJoystick() {
   joystick = nipplejs.create({
     zone: elements.joystickZone,
@@ -153,13 +245,38 @@ function setupJoystick() {
     restJoystick: true,
   });
 
+  joystick.on('start', () => {
+    joystickActive = true;
+    // Clear any pending stop
+    if (stopTimeout) {
+      clearTimeout(stopTimeout);
+      stopTimeout = null;
+    }
+  });
+
   joystick.on('move', (evt, data) => {
-    handleJoystickMove(data);
+    if (joystickActive) {
+      handleJoystickMove(data);
+    }
   });
 
   joystick.on('end', () => {
+    joystickActive = false;
+    isMoving = false;
+    // Send stop immediately and multiple times for reliability
     stopMovement();
+    // Send additional stops with slight delays to ensure camera receives it
+    setTimeout(() => stopMovement(), 50);
+    setTimeout(() => stopMovement(), 100);
   });
+
+  // Failsafe: if no movement for 200ms while not active, send stop
+  setInterval(() => {
+    if (!joystickActive && Date.now() - lastMoveTime > 200 && lastMoveTime > 0) {
+      stopMovement();
+      lastMoveTime = 0;
+    }
+  }, 100);
 }
 
 // Handle joystick movement
@@ -182,11 +299,11 @@ function handleJoystickMove(data) {
   else if (angle >= 247.5 && angle < 292.5) direction = 'down';
   else direction = 'downright';
 
-  // Throttle movement commands
-  if (!isMoving) {
-    isMoving = true;
+  // Throttle movement commands - send every 50ms max
+  const now = Date.now();
+  if (now - lastMoveTime >= 50) {
+    lastMoveTime = now;
     sendMove(direction, panSpeed, tiltSpeed);
-    setTimeout(() => { isMoving = false; }, 50);
   }
 }
 
@@ -448,9 +565,26 @@ function setupPresets() {
     btn.dataset.preset = i;
 
     const presetData = presets[i];
-    if (presetData && presetData.name) {
-      btn.textContent = presetData.name.substring(0, 2).toUpperCase();
-      btn.title = presetData.name;
+    if (presetData && (presetData.icon || presetData.name)) {
+      // Show icon if set, otherwise show full name with auto-sizing
+      if (presetData.icon) {
+        btn.textContent = presetData.icon;
+        btn.classList.add('has-icon');
+      } else if (presetData.name) {
+        // Show full name, auto-size based on length
+        const name = presetData.name;
+        btn.textContent = name;
+
+        // Apply size class based on text length
+        if (name.length <= 3) {
+          btn.classList.add('text-lg');
+        } else if (name.length <= 6) {
+          btn.classList.add('text-md');
+        } else {
+          btn.classList.add('text-sm');
+        }
+      }
+      btn.title = presetData.name || `Preset ${i}`;
       btn.classList.add('has-name');
     } else {
       btn.textContent = i;
@@ -544,19 +678,43 @@ function setupSettingsTabs() {
 }
 
 // Setup modals
+// Helper functions to open/close modals with body scroll lock
+function openModal(modal) {
+  document.body.classList.add('modal-open');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function closeModal(modal) {
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  // Only remove modal-open if no other modals are visible
+  const anyModalOpen = document.querySelector('#settings-modal.flex, #preset-modal.flex, #destination-modal:not(.hidden)');
+  if (!anyModalOpen) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
 function setupModals() {
   // Settings modal
   document.getElementById('settings-btn').addEventListener('click', () => {
-    elements.settingsModal.classList.remove('hidden');
+    openModal(elements.settingsModal);
   });
 
   document.getElementById('close-settings').addEventListener('click', () => {
-    elements.settingsModal.classList.add('hidden');
+    closeModal(elements.settingsModal);
+  });
+
+  // Close settings modal when clicking backdrop
+  elements.settingsModal.addEventListener('click', (e) => {
+    if (e.target === elements.settingsModal) {
+      closeModal(elements.settingsModal);
+    }
   });
 
   document.getElementById('save-settings').addEventListener('click', () => {
     saveConfig();
-    elements.settingsModal.classList.add('hidden');
+    closeModal(elements.settingsModal);
     vibrate(30);
   });
 
@@ -565,20 +723,51 @@ function setupModals() {
   const presetConfirmView = document.getElementById('preset-confirm-view');
 
   document.getElementById('close-preset-modal').addEventListener('click', () => {
-    elements.presetModal.classList.add('hidden');
+    closeModal(elements.presetModal);
     presetMainView.classList.remove('hidden');
     presetConfirmView.classList.add('hidden');
   });
 
-  // Save label only (no position change)
+  // Close preset modal when clicking backdrop
+  elements.presetModal.addEventListener('click', (e) => {
+    if (e.target === elements.presetModal) {
+      closeModal(elements.presetModal);
+      presetMainView.classList.remove('hidden');
+      presetConfirmView.classList.add('hidden');
+    }
+  });
+
+  // Icon selection handlers
+  document.querySelectorAll('.preset-icon-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Remove selection from all icons
+      document.querySelectorAll('.preset-icon-btn').forEach(b => {
+        b.classList.remove('bg-blue-600', 'ring-2', 'ring-blue-400');
+      });
+      // Select clicked icon
+      btn.classList.add('bg-blue-600', 'ring-2', 'ring-blue-400');
+      currentPresetIcon = btn.dataset.icon;
+      // Update preview
+      updatePresetPreview();
+      vibrate(10);
+    });
+  });
+
+  // Update preview when label changes
+  document.getElementById('preset-name-input').addEventListener('input', () => {
+    updatePresetPreview();
+  });
+
+  // Save label and icon (no position change)
   document.getElementById('save-preset-name').addEventListener('click', () => {
     if (currentPreset) {
       const name = document.getElementById('preset-name-input').value.trim();
       if (!presets[currentPreset]) presets[currentPreset] = {};
       presets[currentPreset].name = name;
+      presets[currentPreset].icon = currentPresetIcon;
       savePresets();
       setupPresets();
-      elements.presetModal.classList.add('hidden');
+      closeModal(elements.presetModal);
       vibrate(20);
     }
   });
@@ -603,9 +792,10 @@ function setupModals() {
       const name = document.getElementById('preset-name-input').value.trim();
       if (!presets[currentPreset]) presets[currentPreset] = {};
       if (name) presets[currentPreset].name = name;
+      presets[currentPreset].icon = currentPresetIcon;
       savePresets();
       setupPresets();
-      elements.presetModal.classList.add('hidden');
+      closeModal(elements.presetModal);
       presetMainView.classList.remove('hidden');
       presetConfirmView.classList.add('hidden');
       vibrate(50);
@@ -615,46 +805,34 @@ function setupModals() {
   document.getElementById('call-preset').addEventListener('click', () => {
     if (currentPreset) {
       callPreset(currentPreset);
-      elements.presetModal.classList.add('hidden');
+      closeModal(elements.presetModal);
     }
   });
 
-  // Click outside to close
-  elements.settingsModal.addEventListener('click', (e) => {
-    if (e.target === elements.settingsModal) {
-      elements.settingsModal.classList.add('hidden');
-    }
-  });
-
-  elements.presetModal.addEventListener('click', (e) => {
-    if (e.target === elements.presetModal) {
-      elements.presetModal.classList.add('hidden');
-      presetMainView.classList.remove('hidden');
-      presetConfirmView.classList.add('hidden');
-    }
-  });
-
-  // Destination change confirmation modal
+  // Broadcast change confirmation modal
   const destModal = document.getElementById('destination-modal');
   document.getElementById('cancel-destination').addEventListener('click', () => {
     destModal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
     // Reset dropdown to previous value
-    loadVidiuDestinations();
+    loadVidiuBroadcasts();
   });
 
   document.getElementById('confirm-destination').addEventListener('click', async () => {
-    const newDest = pendingDestination;
-    if (newDest) {
-      await setVidiuDestination(newDest);
+    const newBroadcast = pendingDestination;
+    if (newBroadcast) {
+      await selectVidiuBroadcast(newBroadcast);
       pendingDestination = null;
     }
     destModal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
   });
 
   destModal.addEventListener('click', (e) => {
     if (e.target === destModal) {
       destModal.classList.add('hidden');
-      loadVidiuDestinations();
+      document.body.classList.remove('modal-open');
+      loadVidiuBroadcasts();
     }
   });
 }
@@ -663,8 +841,44 @@ function openPresetModal(number) {
   currentPreset = number;
   document.getElementById('preset-number').textContent = number;
   document.getElementById('preset-name-input').value = presets[number]?.name || '';
-  elements.presetModal.classList.remove('hidden');
+
+  // Load current icon
+  currentPresetIcon = presets[number]?.icon || '';
+
+  // Update icon selection UI
+  document.querySelectorAll('.preset-icon-btn').forEach(btn => {
+    btn.classList.remove('bg-blue-600', 'ring-2', 'ring-blue-400');
+    if (btn.dataset.icon === currentPresetIcon) {
+      btn.classList.add('bg-blue-600', 'ring-2', 'ring-blue-400');
+    }
+  });
+
+  // Update preview
+  updatePresetPreview();
+
+  openModal(elements.presetModal);
   vibrate(30);
+}
+
+function updatePresetPreview() {
+  const previewIcon = document.getElementById('preset-preview-icon');
+  const previewLabel = document.getElementById('preset-preview-label');
+  const nameInput = document.getElementById('preset-name-input');
+
+  // Update icon preview
+  previewIcon.textContent = currentPresetIcon || '—';
+
+  // Update label preview
+  const name = nameInput.value.trim();
+  if (name) {
+    previewLabel.textContent = name;
+    previewLabel.classList.remove('text-gray-500');
+    previewLabel.classList.add('text-gray-300');
+  } else {
+    previewLabel.textContent = 'No label';
+    previewLabel.classList.remove('text-gray-300');
+    previewLabel.classList.add('text-gray-500');
+  }
 }
 
 // Haptic feedback
@@ -771,9 +985,16 @@ function updateDeviceStatus(device, connected) {
 
 function setupVidiuControls() {
   const streamBtn = document.getElementById('vidiu-stream-btn');
-  const destSelect = document.getElementById('vidiu-destination');
+  const previewBtn = document.getElementById('vidiu-preview-btn');
+  const endPreviewBtn = document.getElementById('vidiu-endpreview-btn');
+  const completeBtn = document.getElementById('vidiu-complete-btn');
+  const broadcastSelect = document.getElementById('vidiu-broadcast');
+  const refreshBtn = document.getElementById('vidiu-refresh-btn');
 
-  // Stream button
+  // Setup Vidiu tabs
+  setupVidiuTabs();
+
+  // Stream button (Go Live / Stop)
   streamBtn.addEventListener('click', async () => {
     streamBtn.disabled = true;
     if (vidiuStreaming) {
@@ -784,9 +1005,30 @@ function setupVidiuControls() {
     streamBtn.disabled = false;
   });
 
-  // Destination change with confirmation
-  destSelect.addEventListener('change', () => {
-    const selectedOption = destSelect.options[destSelect.selectedIndex];
+  // Preview button
+  previewBtn.addEventListener('click', async () => {
+    previewBtn.disabled = true;
+    await startVidiuPreview();
+    previewBtn.disabled = false;
+  });
+
+  // End Preview button
+  endPreviewBtn.addEventListener('click', async () => {
+    endPreviewBtn.disabled = true;
+    await endVidiuPreview();
+    endPreviewBtn.disabled = false;
+  });
+
+  // Complete broadcast button
+  completeBtn.addEventListener('click', async () => {
+    completeBtn.disabled = true;
+    await completeVidiuBroadcast();
+    completeBtn.disabled = false;
+  });
+
+  // Broadcast change with confirmation
+  broadcastSelect.addEventListener('change', () => {
+    const selectedOption = broadcastSelect.options[broadcastSelect.selectedIndex];
     if (selectedOption.value) {
       pendingDestination = selectedOption.value;
       document.getElementById('new-destination-name').textContent = selectedOption.text;
@@ -794,19 +1036,207 @@ function setupVidiuControls() {
     }
   });
 
+  // Refresh broadcasts button
+  refreshBtn.addEventListener('click', async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.classList.add('animate-spin');
+    await refreshVidiuBroadcasts();
+    refreshBtn.classList.remove('animate-spin');
+    refreshBtn.disabled = false;
+  });
+
+  // Setup encoder settings
+  setupVidiuEncoderSettings();
+
+  // Setup mode settings
+  setupVidiuModeSettings();
+
+  // Setup advanced actions
+  setupVidiuAdvanced();
+
   // Initial load
   loadVidiuStatus();
-  loadVidiuDestinations();
+  loadVidiuBroadcasts();
 
   // Poll status every 5 seconds
   vidiuStatusInterval = setInterval(loadVidiuStatus, 5000);
 }
 
+function setupVidiuTabs() {
+  const tabs = document.querySelectorAll('.vidiu-tab');
+  const panels = document.querySelectorAll('.vidiu-panel');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      const targetPanel = tab.dataset.tab;
+      panels.forEach(panel => {
+        panel.classList.add('hidden');
+        if (panel.id === `${targetPanel}-panel`) {
+          panel.classList.remove('hidden');
+        }
+      });
+    });
+  });
+}
+
+function setupVidiuEncoderSettings() {
+  const saveBtn = document.getElementById('vidiu-save-encoder');
+
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Applying...';
+
+    try {
+      // Video encoder settings
+      const videoSettings = {
+        resolution: document.getElementById('vidiu-resolution').value,
+        bitrate_setting: parseInt(document.getElementById('vidiu-video-bitrate').value),
+        codec: document.getElementById('vidiu-codec').value
+      };
+
+      await fetch('/api/vidiu/settings/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(videoSettings)
+      });
+
+      // Audio encoder settings
+      const audioSettings = {
+        bitrate_setting: parseInt(document.getElementById('vidiu-audio-bitrate').value),
+        stream_volume: parseInt(document.getElementById('vidiu-audio-volume').value),
+        stream_mute: document.getElementById('vidiu-audio-mute').checked
+      };
+
+      await fetch('/api/vidiu/settings/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(audioSettings)
+      });
+
+      vibrate(30);
+    } catch (error) {
+      console.error('Failed to save encoder settings:', error);
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Apply Encoder Settings';
+  });
+}
+
+function setupVidiuModeSettings() {
+  const modeSelect = document.getElementById('vidiu-mode-select');
+  const youtubeSettings = document.getElementById('youtube-settings');
+  const rtmpSettings = document.getElementById('rtmp-settings');
+  const saveBtn = document.getElementById('vidiu-save-mode');
+
+  // Toggle settings panels based on mode
+  modeSelect.addEventListener('change', () => {
+    const mode = modeSelect.value;
+    youtubeSettings.classList.toggle('hidden', mode !== 'YouTubeLive');
+    rtmpSettings.classList.toggle('hidden', mode !== 'RTMP');
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Applying...';
+
+    try {
+      const mode = modeSelect.value;
+
+      // Set the streaming mode/destination
+      await fetch('/api/vidiu/destination', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: mode })
+      });
+
+      // Apply mode-specific settings
+      if (mode === 'YouTubeLive') {
+        const ytSettings = {
+          adaptive_bitrate: document.getElementById('vidiu-yt-adaptive').checked,
+          auto_reconnect: document.getElementById('vidiu-yt-reconnect').checked
+        };
+        await fetch('/api/vidiu/settings/youtube', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ytSettings)
+        });
+      } else if (mode === 'RTMP') {
+        const rtmpSettingsData = {
+          url: document.getElementById('vidiu-rtmp-url').value,
+          stream_key: document.getElementById('vidiu-rtmp-key').value
+        };
+        await fetch('/api/vidiu/settings/rtmp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rtmpSettingsData)
+        });
+      }
+
+      vibrate(30);
+      loadVidiuStatus(); // Refresh status to show new mode
+    } catch (error) {
+      console.error('Failed to save mode settings:', error);
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Apply Mode Settings';
+  });
+}
+
+function setupVidiuAdvanced() {
+  const haltBtn = document.getElementById('vidiu-halt-btn');
+  const reconnectBtn = document.getElementById('vidiu-reconnect-btn');
+
+  haltBtn.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to halt the stream? This will immediately stop streaming.')) {
+      return;
+    }
+    haltBtn.disabled = true;
+    try {
+      await fetch('/api/vidiu/streaming/stop', { method: 'POST' });
+      vibrate(50);
+      loadVidiuStatus();
+    } catch (error) {
+      console.error('Halt failed:', error);
+    }
+    haltBtn.disabled = false;
+  });
+
+  reconnectBtn.addEventListener('click', async () => {
+    reconnectBtn.disabled = true;
+    reconnectBtn.textContent = 'Reconnecting...';
+    try {
+      // Trigger a reconnect by stopping and starting
+      await fetch('/api/vidiu/streaming/stop', { method: 'POST' });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await fetch('/api/vidiu/streaming/start', { method: 'POST' });
+      vibrate(30);
+      startFastPolling();
+    } catch (error) {
+      console.error('Reconnect failed:', error);
+    }
+    reconnectBtn.textContent = 'Reconnect';
+    reconnectBtn.disabled = false;
+  });
+}
+
 async function loadVidiuStatus() {
   const connectionStatus = document.getElementById('vidiu-connection-status');
   const bitrateEl = document.getElementById('vidiu-bitrate');
+  const uptimeEl = document.getElementById('vidiu-uptime');
   const statusText = document.getElementById('vidiu-status-text');
   const streamBtn = document.getElementById('vidiu-stream-btn');
+  const previewBtn = document.getElementById('vidiu-preview-btn');
+  const endPreviewBtn = document.getElementById('vidiu-endpreview-btn');
+  const completeBtn = document.getElementById('vidiu-complete-btn');
+  // Advanced panel elements
+  const currentModeEl = document.getElementById('vidiu-current-mode');
+  const accountNameEl = document.getElementById('vidiu-account-name');
+  const stateEl = document.getElementById('vidiu-state');
 
   try {
     const response = await fetch('/api/vidiu/streaming');
@@ -818,8 +1248,11 @@ async function loadVidiuStatus() {
 
       const state = data.data?.state || 'Unknown';
 
+      // Update advanced panel info
+      if (stateEl) stateEl.textContent = state;
+
       // Update UI based on state machine:
-      // Invalid → Waiting → Ready → Starting → Live → Stopping → Ready/Complete
+      // Invalid → Waiting → Ready → Starting → Previewing → Live → Stopping → Ready/Complete
       switch (state) {
         case 'Live':
           vidiuStreaming = true;
@@ -827,9 +1260,29 @@ async function loadVidiuStatus() {
           streamBtn.classList.remove('bg-green-600', 'hover:bg-green-700', 'bg-yellow-600', 'hover:bg-yellow-700');
           streamBtn.classList.add('bg-red-600', 'hover:bg-red-700');
           streamBtn.disabled = false;
+          previewBtn.classList.add('hidden');
+          endPreviewBtn.classList.add('hidden');
+          completeBtn.classList.remove('hidden');
+          completeBtn.disabled = false;
           statusText.textContent = data.data?.broadcast ? `LIVE: ${data.data.broadcast}` : 'LIVE';
           statusText.classList.add('text-red-400');
           statusText.classList.remove('text-yellow-400', 'text-gray-500');
+          break;
+
+        case 'Previewing':
+        case 'Preview':
+          vidiuStreaming = false;
+          streamBtn.textContent = 'Go Live';
+          streamBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-yellow-600', 'hover:bg-yellow-700');
+          streamBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+          streamBtn.disabled = false;
+          previewBtn.classList.add('hidden');
+          endPreviewBtn.classList.remove('hidden');
+          endPreviewBtn.disabled = false;
+          completeBtn.classList.add('hidden');
+          statusText.textContent = data.data?.broadcast ? `Preview: ${data.data.broadcast}` : 'Preview Active';
+          statusText.classList.add('text-yellow-400');
+          statusText.classList.remove('text-red-400', 'text-gray-500');
           break;
 
         case 'Starting':
@@ -838,6 +1291,9 @@ async function loadVidiuStatus() {
           streamBtn.classList.remove('bg-green-600', 'hover:bg-green-700', 'bg-red-600', 'hover:bg-red-700');
           streamBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
           streamBtn.disabled = true;
+          previewBtn.disabled = true;
+          endPreviewBtn.classList.add('hidden');
+          completeBtn.classList.add('hidden');
           statusText.textContent = 'Starting broadcast...';
           statusText.classList.add('text-yellow-400');
           statusText.classList.remove('text-red-400', 'text-gray-500');
@@ -849,6 +1305,9 @@ async function loadVidiuStatus() {
           streamBtn.classList.remove('bg-green-600', 'hover:bg-green-700', 'bg-red-600', 'hover:bg-red-700');
           streamBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
           streamBtn.disabled = true;
+          previewBtn.disabled = true;
+          endPreviewBtn.classList.add('hidden');
+          completeBtn.classList.add('hidden');
           statusText.textContent = 'Stopping broadcast...';
           statusText.classList.add('text-yellow-400');
           statusText.classList.remove('text-red-400', 'text-gray-500');
@@ -860,6 +1319,10 @@ async function loadVidiuStatus() {
           streamBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-yellow-600', 'hover:bg-yellow-700');
           streamBtn.classList.add('bg-green-600', 'hover:bg-green-700');
           streamBtn.disabled = false;
+          previewBtn.classList.remove('hidden');
+          previewBtn.disabled = false;
+          endPreviewBtn.classList.add('hidden');
+          completeBtn.classList.add('hidden');
           statusText.textContent = data.data?.broadcast ? `Ready: ${data.data.broadcast}` : 'Ready';
           statusText.classList.remove('text-red-400', 'text-yellow-400');
           statusText.classList.add('text-gray-500');
@@ -872,6 +1335,9 @@ async function loadVidiuStatus() {
           streamBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-yellow-600', 'hover:bg-yellow-700');
           streamBtn.classList.add('bg-green-600', 'hover:bg-green-700');
           streamBtn.disabled = true;
+          previewBtn.disabled = true;
+          endPreviewBtn.classList.add('hidden');
+          completeBtn.classList.add('hidden');
           statusText.textContent = state === 'Invalid' ? 'Not configured' : 'Waiting...';
           statusText.classList.remove('text-red-400', 'text-yellow-400');
           statusText.classList.add('text-gray-500');
@@ -881,6 +1347,10 @@ async function loadVidiuStatus() {
           vidiuStreaming = false;
           streamBtn.textContent = 'Go Live';
           streamBtn.disabled = false;
+          previewBtn.classList.remove('hidden');
+          previewBtn.disabled = false;
+          endPreviewBtn.classList.add('hidden');
+          completeBtn.classList.add('hidden');
           statusText.textContent = state;
           statusText.classList.remove('text-red-400', 'text-yellow-400');
       }
@@ -898,8 +1368,11 @@ async function loadVidiuStatus() {
       }
 
       // Uptime display
-      if (data.data?.uptime && state === 'Live') {
-        bitrateEl.textContent += ` | ${data.data.uptime}`;
+      if (data.data?.uptime && (state === 'Live' || state === 'Previewing' || state === 'Preview')) {
+        uptimeEl.textContent = data.data.uptime;
+        uptimeEl.classList.remove('hidden');
+      } else {
+        uptimeEl.classList.add('hidden');
       }
 
     } else {
@@ -908,38 +1381,101 @@ async function loadVidiuStatus() {
       statusText.textContent = 'Not connected';
       bitrateEl.textContent = '--';
       streamBtn.disabled = true;
+      previewBtn.disabled = true;
     }
+
+    // Also fetch device info for advanced panel
+    try {
+      const deviceResponse = await fetch('/api/vidiu/device');
+      const deviceData = await deviceResponse.json();
+      if (deviceData.success && deviceData.data) {
+        if (currentModeEl) currentModeEl.textContent = deviceData.data.currentMode || '--';
+        if (accountNameEl) accountNameEl.textContent = deviceData.data.accountName || '--';
+      }
+    } catch (e) {
+      // Silently fail for device info
+    }
+
   } catch (error) {
     connectionStatus.classList.remove('bg-green-500', 'bg-gray-500');
     connectionStatus.classList.add('bg-red-500');
     statusText.textContent = 'Connection error';
     streamBtn.disabled = true;
+    previewBtn.disabled = true;
   }
 }
 
-async function loadVidiuDestinations() {
-  const destSelect = document.getElementById('vidiu-destination');
+async function loadVidiuBroadcasts() {
+  const broadcastSelect = document.getElementById('vidiu-broadcast');
 
   try {
-    const response = await fetch('/api/vidiu/destinations');
+    const response = await fetch('/api/vidiu/broadcasts');
     const data = await response.json();
 
-    destSelect.innerHTML = '<option value="">-- Select --</option>';
+    broadcastSelect.innerHTML = '<option value="">-- Select Broadcast --</option>';
 
     if (data.success && data.data) {
-      const destinations = Array.isArray(data.data) ? data.data : (data.data.destinations || data.data.profiles || []);
-      destinations.forEach(dest => {
+      const broadcasts = data.data.broadcasts || [];
+      broadcasts.forEach(broadcast => {
         const option = document.createElement('option');
-        option.value = dest.id || dest.name;
-        option.textContent = dest.name || dest.title || dest.id;
-        if (dest.active || dest.selected) {
+        option.value = broadcast.id;
+        // Format: title with scheduled time if available
+        let label = broadcast.title;
+        if (broadcast.scheduledStartTime) {
+          const date = new Date(broadcast.scheduledStartTime);
+          const timeStr = date.toLocaleString('en-US', {
+            month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit'
+          });
+          label += ` (${timeStr})`;
+        }
+        option.textContent = label;
+        if (broadcast.selected) {
           option.selected = true;
         }
-        destSelect.appendChild(option);
+        broadcastSelect.appendChild(option);
       });
     }
   } catch (error) {
-    console.error('Failed to load destinations:', error);
+    console.error('Failed to load broadcasts:', error);
+  }
+}
+
+async function refreshVidiuBroadcasts() {
+  const broadcastSelect = document.getElementById('vidiu-broadcast');
+  broadcastSelect.innerHTML = '<option value="">Refreshing...</option>';
+
+  try {
+    const response = await fetch('/api/vidiu/broadcasts/refresh', { method: 'POST' });
+    const data = await response.json();
+
+    broadcastSelect.innerHTML = '<option value="">-- Select Broadcast --</option>';
+
+    if (data.success && data.data) {
+      const broadcasts = data.data.broadcasts || [];
+      broadcasts.forEach(broadcast => {
+        const option = document.createElement('option');
+        option.value = broadcast.id;
+        let label = broadcast.title;
+        if (broadcast.scheduledStartTime) {
+          const date = new Date(broadcast.scheduledStartTime);
+          const timeStr = date.toLocaleString('en-US', {
+            month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit'
+          });
+          label += ` (${timeStr})`;
+        }
+        option.textContent = label;
+        if (broadcast.selected) {
+          option.selected = true;
+        }
+        broadcastSelect.appendChild(option);
+      });
+      vibrate(30);
+    }
+  } catch (error) {
+    console.error('Failed to refresh broadcasts:', error);
+    broadcastSelect.innerHTML = '<option value="">-- Error loading --</option>';
   }
 }
 
@@ -951,22 +1487,102 @@ async function startVidiuStream() {
   streamBtn.disabled = true;
 
   try {
-    const response = await fetch('/api/vidiu/streaming/start', { method: 'POST' });
-    const data = await response.json();
+    // Check current state
+    const statusResponse = await fetch('/api/vidiu/streaming');
+    const statusData = await statusResponse.json();
+    const currentState = statusData.data?.state || '';
 
-    if (data.success) {
-      vibrate(50);
-      // Poll more frequently during state transitions
-      startFastPolling();
+    console.log(`[Vidiu] Going live from state "${currentState}"`);
+
+    if (currentState === 'Previewing' || currentState === 'Preview') {
+      // Already in preview - just go live
+      const response = await fetch('/api/vidiu/streaming/broadcast', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        vibrate(50);
+        startFastPolling();
+      } else {
+        statusText.textContent = 'Failed to go live';
+        streamBtn.disabled = false;
+      }
+    } else if (currentState === 'Ready') {
+      // Try direct go-live first (publish)
+      statusText.textContent = 'Going live...';
+      const publishResponse = await fetch('/api/vidiu/streaming/start', { method: 'POST' });
+
+      // Wait a moment to check if it worked
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Check if we're now streaming
+      const checkResponse = await fetch('/api/vidiu/streaming');
+      const checkData = await checkResponse.json();
+      const newState = checkData.data?.state || '';
+
+      if (newState === 'Live' || newState === 'Starting') {
+        // Direct publish worked
+        vibrate(50);
+        startFastPolling();
+      } else {
+        // Direct publish failed - fall back to preview→live flow
+        console.log('[Vidiu] Direct publish failed, using preview flow');
+        statusText.textContent = 'Starting preview...';
+        const previewResponse = await fetch('/api/vidiu/streaming/preview', { method: 'POST' });
+        const previewData = await previewResponse.json();
+
+        if (previewData.success) {
+          vibrate(30);
+          statusText.textContent = 'Waiting for preview...';
+          await waitForState('Previewing', 30000);
+
+          statusText.textContent = 'Going live...';
+          const broadcastResponse = await fetch('/api/vidiu/streaming/broadcast', { method: 'POST' });
+          const broadcastData = await broadcastResponse.json();
+
+          if (broadcastData.success) {
+            vibrate(50);
+            startFastPolling();
+          } else {
+            statusText.textContent = 'Failed to go live';
+            streamBtn.disabled = false;
+          }
+        } else {
+          statusText.textContent = 'Failed to start';
+          streamBtn.disabled = false;
+        }
+      }
     } else {
-      statusText.textContent = 'Failed to start';
-      streamBtn.disabled = false;
+      // Unknown state - try direct start
+      const response = await fetch('/api/vidiu/streaming/start', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        vibrate(50);
+        startFastPolling();
+      } else {
+        statusText.textContent = 'Failed to start';
+        streamBtn.disabled = false;
+      }
     }
   } catch (error) {
     statusText.textContent = 'Start failed';
     streamBtn.disabled = false;
     console.error('Start stream failed:', error);
   }
+}
+
+// Helper to wait for a specific Vidiu state
+async function waitForState(targetState, timeout = 30000) {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    try {
+      const response = await fetch('/api/vidiu/streaming');
+      const data = await response.json();
+      if (data.data?.state === targetState) {
+        return true;
+      }
+    } catch (e) {}
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  return false;
 }
 
 async function stopVidiuStream() {
@@ -1023,19 +1639,111 @@ function startFastPolling() {
   }, 500);
 }
 
-async function setVidiuDestination(destId) {
+async function selectVidiuBroadcast(broadcastId) {
   try {
-    const response = await fetch('/api/vidiu/destination', {
+    const response = await fetch('/api/vidiu/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: destId })
+      body: JSON.stringify({ id: broadcastId })
     });
     const data = await response.json();
 
     if (data.success) {
       vibrate(30);
+      // Reload status to show new broadcast name
+      loadVidiuStatus();
     }
   } catch (error) {
-    console.error('Set destination failed:', error);
+    console.error('Select broadcast failed:', error);
+  }
+}
+
+async function startVidiuPreview() {
+  const statusText = document.getElementById('vidiu-status-text');
+  const previewBtn = document.getElementById('vidiu-preview-btn');
+
+  statusText.textContent = 'Starting preview...';
+  previewBtn.disabled = true;
+
+  try {
+    const response = await fetch('/api/vidiu/streaming/preview', { method: 'POST' });
+    const data = await response.json();
+
+    if (data.success) {
+      vibrate(30);
+      startFastPolling();
+    } else {
+      statusText.textContent = 'Preview failed';
+      previewBtn.disabled = false;
+    }
+  } catch (error) {
+    statusText.textContent = 'Preview failed';
+    previewBtn.disabled = false;
+    console.error('Preview failed:', error);
+  }
+}
+
+async function endVidiuPreview() {
+  const statusText = document.getElementById('vidiu-status-text');
+  const endPreviewBtn = document.getElementById('vidiu-endpreview-btn');
+
+  statusText.textContent = 'Ending preview...';
+  endPreviewBtn.disabled = true;
+
+  try {
+    const response = await fetch('/api/vidiu/streaming/endpreview', { method: 'POST' });
+    const data = await response.json();
+
+    if (data.success) {
+      vibrate(30);
+      startFastPolling();
+    } else {
+      statusText.textContent = 'End preview failed';
+      endPreviewBtn.disabled = false;
+    }
+  } catch (error) {
+    statusText.textContent = 'End preview failed';
+    endPreviewBtn.disabled = false;
+    console.error('End preview failed:', error);
+  }
+}
+
+async function completeVidiuBroadcast() {
+  const statusText = document.getElementById('vidiu-status-text');
+  const completeBtn = document.getElementById('vidiu-complete-btn');
+  const broadcastSelect = document.getElementById('vidiu-broadcast');
+
+  if (!confirm('Are you sure you want to complete this broadcast? This will end the stream on YouTube.')) {
+    return;
+  }
+
+  statusText.textContent = 'Completing broadcast...';
+  completeBtn.disabled = true;
+
+  try {
+    const response = await fetch('/api/vidiu/streaming/complete', { method: 'POST' });
+    const data = await response.json();
+
+    if (data.success) {
+      vibrate(50);
+      startFastPolling();
+
+      // Clear current selection since completed broadcast is no longer valid
+      broadcastSelect.value = '';
+
+      // Refresh broadcasts list after a short delay to get updated list from YouTube
+      setTimeout(async () => {
+        statusText.textContent = 'Refreshing broadcasts...';
+        await loadVidiuBroadcasts();
+        statusText.textContent = 'Broadcast completed';
+      }, 2000);
+    } else {
+      statusText.textContent = 'Complete failed';
+      completeBtn.disabled = false;
+    }
+  } catch (error) {
+    statusText.textContent = 'Complete failed';
+    completeBtn.disabled = false;
+    console.error('Complete broadcast failed:', error);
   }
 }

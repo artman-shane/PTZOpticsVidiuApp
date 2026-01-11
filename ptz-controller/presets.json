@@ -1,0 +1,42 @@
+{
+  "1": {
+    "name": "Pulpit",
+    "icon": ""
+  },
+  "2": {
+    "name": "Music",
+    "icon": ""
+  },
+  "3": {
+    "name": "Sacrament Table",
+    "icon": ""
+  },
+  "4": {
+    "name": "Pulpit Close Up",
+    "icon": ""
+  },
+  "5": {
+    "name": "Instrument",
+    "icon": ""
+  },
+  "6": {
+    "name": "Chapel",
+    "icon": ""
+  },
+  "7": {
+    "name": "Conductor",
+    "icon": ""
+  },
+  "9": {
+    "name": "Rostrum",
+    "icon": ""
+  },
+  "10": {
+    "name": "Video Screen",
+    "icon": ""
+  },
+  "12": {
+    "name": "Names and Blessings",
+    "icon": ""
+  }
+}
