@@ -80,6 +80,21 @@ app.use('/whep', createProxyMiddleware({
   pathRewrite: { '^/whep': '/camera/whep' }
 }));
 
+// HLS proxy - routes /hls/* to MediaMTX HLS server for remote access fallback
+app.use('/hls', createProxyMiddleware({
+  target: `http://localhost:${config.mediamtx.hlsPort || 8888}`,
+  changeOrigin: true,
+  pathRewrite: { '^/hls': '' },
+  on: {
+    error: (err, req, res) => {
+      console.error('[HLS Proxy] Error:', err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'HLS server unavailable' });
+      }
+    }
+  }
+}));
+
 // JSON parsing middleware - after proxy routes
 app.use(express.json());
 

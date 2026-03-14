@@ -195,13 +195,46 @@ async function savePresets() {
   localStorage.setItem('ptz-presets', JSON.stringify(presets));
 }
 
-// Setup video player
+// Detect if we're on a local network (WebRTC works) vs remote (need HLS fallback)
+function isLocalNetwork() {
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' ||
+    h.startsWith('192.168.') || h.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
+// Current video mode for display
+let currentVideoMode = '';
+
+// Setup video player with WebRTC-first, HLS-fallback
 function setupVideo() {
-  // Use relative path for video - works through Cloudflare tunnel and locally
-  // The server proxies /video/* to MediaMTX
-  // Note: trailing slash is required for MediaMTX WebRTC player
-  const videoUrl = `/video/camera/?controls=false&muted=true&autoplay=true&playsInline=true`;
-  elements.videoFrame.src = videoUrl;
+  // Remove any existing mode indicator
+  const existingIndicator = document.getElementById('video-mode-indicator');
+  if (existingIndicator) existingIndicator.remove();
+
+  // Add mode indicator to video container
+  const videoContainer = elements.videoFrame.parentElement;
+  const indicator = document.createElement('div');
+  indicator.id = 'video-mode-indicator';
+  indicator.style.cssText = 'position:absolute;top:6px;right:6px;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;z-index:10;pointer-events:none;opacity:0.8;';
+  videoContainer.appendChild(indicator);
+
+  function setMode(mode) {
+    currentVideoMode = mode;
+    indicator.textContent = mode;
+    if (mode === 'WebRTC') {
+      indicator.style.background = '#22c55e';
+      indicator.style.color = '#fff';
+    } else {
+      indicator.style.background = '#eab308';
+      indicator.style.color = '#000';
+    }
+  }
+
+  function loadHLS() {
+    setMode('HLS');
+    elements.videoFrame.src = `/hls/camera/`;
+  }
 
   elements.videoFrame.onload = () => {
     elements.videoLoading.classList.add('hidden');
@@ -213,6 +246,32 @@ function setupVideo() {
     elements.connectionStatus.classList.remove('bg-yellow-500', 'connected');
     elements.connectionStatus.classList.add('disconnected');
   };
+
+  if (!isLocalNetwork()) {
+    // Remote access — go straight to HLS
+    loadHLS();
+  } else {
+    // Local network — try WebRTC first, fall back to HLS on timeout
+    setMode('WebRTC');
+    const webrtcUrl = `/video/camera/?controls=false&muted=true&autoplay=true&playsInline=true`;
+    elements.videoFrame.src = webrtcUrl;
+
+    // If WebRTC doesn't produce video within 5s, switch to HLS
+    const fallbackTimeout = setTimeout(() => {
+      // Only switch if loading spinner is still visible (no video yet)
+      if (!elements.videoLoading.classList.contains('hidden')) {
+        console.log('[Video] WebRTC timeout, falling back to HLS');
+        loadHLS();
+      }
+    }, 5000);
+
+    // Clear timeout if video loads successfully via WebRTC
+    const origOnload = elements.videoFrame.onload;
+    elements.videoFrame.onload = () => {
+      clearTimeout(fallbackTimeout);
+      origOnload();
+    };
+  }
 }
 
 // Check API connection
