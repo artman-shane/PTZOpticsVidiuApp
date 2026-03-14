@@ -212,8 +212,8 @@ class VidiuClient extends EventEmitter {
         data = msgStr;
       }
 
-      // Debug logging - always log status-related topics
-      if (process.env.DEBUG_MQTT || topic.includes('Stream/0/Info') || topic.includes('LiveBroadcasts')) {
+      // Debug logging - only when DEBUG_MQTT is set
+      if (process.env.DEBUG_MQTT) {
         console.log(`[Vidiu MQTT] ${topic}:`, typeof data === 'object' ? JSON.stringify(data).substring(0, 200) : data);
       }
 

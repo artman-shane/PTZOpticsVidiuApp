@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Load config (use function to allow reloading)
 const CONFIG_PATH = path.join(__dirname, '../config.json');
@@ -45,7 +46,56 @@ const mediamtx = require('./services/mediamtx');
 const app = express();
 const PORT = config.server.port;
 
-// Middleware
+// Video proxy - routes /video/* and /camera/* to MediaMTX WebRTC server
+// IMPORTANT: Must be before express.json() to avoid interfering with WHEP protocol
+const videoProxyOptions = {
+  target: `http://localhost:${config.mediamtx.webrtcPort}`,
+  changeOrigin: true,
+  ws: true,
+  on: {
+    error: (err, req, res) => {
+      console.error('[Video Proxy] Error:', err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Video server unavailable' });
+      }
+    }
+  }
+};
+
+// Proxy /video, /camera, and /whep to MediaMTX
+// - /video/* is rewritten to /* (removes /video prefix)
+// - /camera/* needs to preserve the /camera prefix (Express strips mount path)
+// - /whep/* goes to /camera/whep/* (MediaMTX session endpoints)
+app.use('/video', createProxyMiddleware({
+  ...videoProxyOptions,
+  pathRewrite: { '^/video': '' }
+}));
+app.use('/camera', createProxyMiddleware({
+  ...videoProxyOptions,
+  // Express strips /camera from req.url, so we need to add it back
+  pathRewrite: (path) => '/camera' + path
+}));
+app.use('/whep', createProxyMiddleware({
+  ...videoProxyOptions,
+  pathRewrite: { '^/whep': '/camera/whep' }
+}));
+
+// HLS proxy - routes /hls/* to MediaMTX HLS server for remote access fallback
+app.use('/hls', createProxyMiddleware({
+  target: `http://localhost:${config.mediamtx.hlsPort || 8888}`,
+  changeOrigin: true,
+  pathRewrite: { '^/hls': '' },
+  on: {
+    error: (err, req, res) => {
+      console.error('[HLS Proxy] Error:', err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'HLS server unavailable' });
+      }
+    }
+  }
+}));
+
+// JSON parsing middleware - after proxy routes
 app.use(express.json());
 
 // Serve static files from public directory
@@ -61,8 +111,11 @@ app.use('/api/vidiu', vidiuRoutes);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    siteName: process.env.SITE_NAME || 'PTZ Controller',
     camera: config.camera.ip,
-    mediamtx: `http://localhost:${config.mediamtx.webrtcPort}/camera`
+    vidiu: config.vidiu.ip,
+    mediamtx: `/video/camera`,
+    version: require('../package.json').version
   });
 });
 

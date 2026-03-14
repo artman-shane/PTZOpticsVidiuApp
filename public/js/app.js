@@ -195,11 +195,46 @@ async function savePresets() {
   localStorage.setItem('ptz-presets', JSON.stringify(presets));
 }
 
-// Setup video player
+// Detect if we're on a local network (WebRTC works) vs remote (need HLS fallback)
+function isLocalNetwork() {
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' ||
+    h.startsWith('192.168.') || h.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
+// Current video mode for display
+let currentVideoMode = '';
+
+// Setup video player with WebRTC-first, HLS-fallback
 function setupVideo() {
-  const host = window.location.hostname || 'localhost';
-  const videoUrl = `http://${host}:${config.mediamtxPort}/camera?controls=false&muted=true&autoplay=true&playsInline=true`;
-  elements.videoFrame.src = videoUrl;
+  // Remove any existing mode indicator
+  const existingIndicator = document.getElementById('video-mode-indicator');
+  if (existingIndicator) existingIndicator.remove();
+
+  // Add mode indicator to video container
+  const videoContainer = elements.videoFrame.parentElement;
+  const indicator = document.createElement('div');
+  indicator.id = 'video-mode-indicator';
+  indicator.style.cssText = 'position:absolute;top:6px;right:6px;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;z-index:10;pointer-events:none;opacity:0.8;';
+  videoContainer.appendChild(indicator);
+
+  function setMode(mode) {
+    currentVideoMode = mode;
+    indicator.textContent = mode;
+    if (mode === 'WebRTC') {
+      indicator.style.background = '#22c55e';
+      indicator.style.color = '#fff';
+    } else {
+      indicator.style.background = '#eab308';
+      indicator.style.color = '#000';
+    }
+  }
+
+  function loadHLS() {
+    setMode('HLS');
+    elements.videoFrame.src = `/hls/camera/`;
+  }
 
   elements.videoFrame.onload = () => {
     elements.videoLoading.classList.add('hidden');
@@ -211,6 +246,32 @@ function setupVideo() {
     elements.connectionStatus.classList.remove('bg-yellow-500', 'connected');
     elements.connectionStatus.classList.add('disconnected');
   };
+
+  if (!isLocalNetwork()) {
+    // Remote access — go straight to HLS
+    loadHLS();
+  } else {
+    // Local network — try WebRTC first, fall back to HLS on timeout
+    setMode('WebRTC');
+    const webrtcUrl = `/video/camera/?controls=false&muted=true&autoplay=true&playsInline=true`;
+    elements.videoFrame.src = webrtcUrl;
+
+    // If WebRTC doesn't produce video within 5s, switch to HLS
+    const fallbackTimeout = setTimeout(() => {
+      // Only switch if loading spinner is still visible (no video yet)
+      if (!elements.videoLoading.classList.contains('hidden')) {
+        console.log('[Video] WebRTC timeout, falling back to HLS');
+        loadHLS();
+      }
+    }, 5000);
+
+    // Clear timeout if video loads successfully via WebRTC
+    const origOnload = elements.videoFrame.onload;
+    elements.videoFrame.onload = () => {
+      clearTimeout(fallbackTimeout);
+      origOnload();
+    };
+  }
 }
 
 // Check API connection
@@ -232,6 +293,12 @@ async function checkConnection() {
 let joystickActive = false;
 let lastMoveTime = 0;
 let stopTimeout = null;
+let joystickStartTime = 0; // Track when joystick was activated
+
+// Dead zone - minimum force required before movement (0.0 to 1.0)
+const JOYSTICK_DEAD_ZONE = 0.15;
+// Ignore first few ms after start to let user establish direction
+const JOYSTICK_STARTUP_DELAY = 50;
 
 function setupJoystick() {
   joystick = nipplejs.create({
@@ -247,6 +314,7 @@ function setupJoystick() {
 
   joystick.on('start', () => {
     joystickActive = true;
+    joystickStartTime = Date.now();
     // Clear any pending stop
     if (stopTimeout) {
       clearTimeout(stopTimeout);
@@ -263,6 +331,7 @@ function setupJoystick() {
   joystick.on('end', () => {
     joystickActive = false;
     isMoving = false;
+    joystickStartTime = 0;
     // Send stop immediately and multiple times for reliability
     stopMovement();
     // Send additional stops with slight delays to ensure camera receives it
@@ -281,12 +350,45 @@ function setupJoystick() {
 
 // Handle joystick movement
 function handleJoystickMove(data) {
-  const angle = data.angle.degree;
-  const force = Math.min(data.force, 1);
+  const force = data.force; // Don't clamp - allow beyond boundary for faster speeds
 
-  // Calculate speeds based on force AND speed multiplier (1-24 for pan, 1-20 for tilt)
-  const panSpeed = Math.max(1, Math.round(force * 24 * speedMultiplier));
-  const tiltSpeed = Math.max(1, Math.round(force * 20 * speedMultiplier));
+  // Dead zone - ignore small movements
+  if (force < JOYSTICK_DEAD_ZONE) {
+    return;
+  }
+
+  // Ignore movements in the first few ms to let user establish direction
+  if (Date.now() - joystickStartTime < JOYSTICK_STARTUP_DELAY) {
+    return;
+  }
+
+  const angle = data.angle.degree;
+
+  // Fixed speed tiers based on joystick distance (ignores speed slider)
+  // Lower speeds for more precision control
+  let panSpeed, tiltSpeed, tier;
+
+  if (force > 1.0) {
+    // Beyond boundary - fast
+    panSpeed = 10;
+    tiltSpeed = 8;
+    tier = 'fast';
+  } else if (force > 0.65) {
+    // At edge - medium
+    panSpeed = 5;
+    tiltSpeed = 4;
+    tier = 'medium';
+  } else if (force > 0.40) {
+    // Middle zone - slow
+    panSpeed = 2;
+    tiltSpeed = 2;
+    tier = 'slow';
+  } else {
+    // Near center - very slow (for fine adjustments)
+    panSpeed = 1;
+    tiltSpeed = 1;
+    tier = 'very slow';
+  }
 
   // Determine direction based on angle
   let direction;
@@ -303,6 +405,7 @@ function handleJoystickMove(data) {
   const now = Date.now();
   if (now - lastMoveTime >= 50) {
     lastMoveTime = now;
+    console.log(`[Joystick] force=${Math.round(force * 100)}%, tier=${tier}, dir=${direction}, pan=${panSpeed}, tilt=${tiltSpeed}`);
     sendMove(direction, panSpeed, tiltSpeed);
   }
 }
