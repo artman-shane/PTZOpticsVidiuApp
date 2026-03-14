@@ -197,8 +197,10 @@ async function savePresets() {
 
 // Setup video player
 function setupVideo() {
-  const host = window.location.hostname || 'localhost';
-  const videoUrl = `http://${host}:${config.mediamtxPort}/camera?controls=false&muted=true&autoplay=true&playsInline=true`;
+  // Use relative path for video - works through Cloudflare tunnel and locally
+  // The server proxies /video/* to MediaMTX
+  // Note: trailing slash is required for MediaMTX WebRTC player
+  const videoUrl = `/video/camera/?controls=false&muted=true&autoplay=true&playsInline=true`;
   elements.videoFrame.src = videoUrl;
 
   elements.videoFrame.onload = () => {
@@ -232,6 +234,12 @@ async function checkConnection() {
 let joystickActive = false;
 let lastMoveTime = 0;
 let stopTimeout = null;
+let joystickStartTime = 0; // Track when joystick was activated
+
+// Dead zone - minimum force required before movement (0.0 to 1.0)
+const JOYSTICK_DEAD_ZONE = 0.15;
+// Ignore first few ms after start to let user establish direction
+const JOYSTICK_STARTUP_DELAY = 50;
 
 function setupJoystick() {
   joystick = nipplejs.create({
@@ -247,6 +255,7 @@ function setupJoystick() {
 
   joystick.on('start', () => {
     joystickActive = true;
+    joystickStartTime = Date.now();
     // Clear any pending stop
     if (stopTimeout) {
       clearTimeout(stopTimeout);
@@ -263,6 +272,7 @@ function setupJoystick() {
   joystick.on('end', () => {
     joystickActive = false;
     isMoving = false;
+    joystickStartTime = 0;
     // Send stop immediately and multiple times for reliability
     stopMovement();
     // Send additional stops with slight delays to ensure camera receives it
@@ -281,12 +291,45 @@ function setupJoystick() {
 
 // Handle joystick movement
 function handleJoystickMove(data) {
-  const angle = data.angle.degree;
-  const force = Math.min(data.force, 1);
+  const force = data.force; // Don't clamp - allow beyond boundary for faster speeds
 
-  // Calculate speeds based on force AND speed multiplier (1-24 for pan, 1-20 for tilt)
-  const panSpeed = Math.max(1, Math.round(force * 24 * speedMultiplier));
-  const tiltSpeed = Math.max(1, Math.round(force * 20 * speedMultiplier));
+  // Dead zone - ignore small movements
+  if (force < JOYSTICK_DEAD_ZONE) {
+    return;
+  }
+
+  // Ignore movements in the first few ms to let user establish direction
+  if (Date.now() - joystickStartTime < JOYSTICK_STARTUP_DELAY) {
+    return;
+  }
+
+  const angle = data.angle.degree;
+
+  // Fixed speed tiers based on joystick distance (ignores speed slider)
+  // Lower speeds for more precision control
+  let panSpeed, tiltSpeed, tier;
+
+  if (force > 1.0) {
+    // Beyond boundary - fast
+    panSpeed = 10;
+    tiltSpeed = 8;
+    tier = 'fast';
+  } else if (force > 0.65) {
+    // At edge - medium
+    panSpeed = 5;
+    tiltSpeed = 4;
+    tier = 'medium';
+  } else if (force > 0.40) {
+    // Middle zone - slow
+    panSpeed = 2;
+    tiltSpeed = 2;
+    tier = 'slow';
+  } else {
+    // Near center - very slow (for fine adjustments)
+    panSpeed = 1;
+    tiltSpeed = 1;
+    tier = 'very slow';
+  }
 
   // Determine direction based on angle
   let direction;
@@ -303,6 +346,7 @@ function handleJoystickMove(data) {
   const now = Date.now();
   if (now - lastMoveTime >= 50) {
     lastMoveTime = now;
+    console.log(`[Joystick] force=${Math.round(force * 100)}%, tier=${tier}, dir=${direction}, pan=${panSpeed}, tilt=${tiltSpeed}`);
     sendMove(direction, panSpeed, tiltSpeed);
   }
 }

@@ -6,9 +6,11 @@ const camera = require('../services/camera');
 // POST /api/ptz/move { direction, panSpeed, tiltSpeed, simulate }
 router.post('/move', async (req, res) => {
   const { direction, panSpeed, tiltSpeed, simulate } = req.body;
+  console.log(`[PTZ] Move request: direction=${direction}, panSpeed=${panSpeed}, tiltSpeed=${tiltSpeed}`);
 
   const validDirections = ['up', 'down', 'left', 'right', 'upleft', 'upright', 'downleft', 'downright'];
   if (!validDirections.includes(direction)) {
+    console.log(`[PTZ] Invalid direction: ${direction}`);
     return res.status(400).json({ error: 'Invalid direction' });
   }
 

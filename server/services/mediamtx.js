@@ -1,6 +1,23 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
+
+/**
+ * Get local IPv4 addresses for WebRTC ICE candidates
+ */
+function getLocalIPs() {
+  const ips = ['127.0.0.1'];
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        ips.push(iface.address);
+      }
+    }
+  }
+  return ips;
+}
 
 const MEDIAMTX_DIR = path.join(__dirname, '../../mediamtx');
 const CONFIG_PATH = path.join(MEDIAMTX_DIR, 'mediamtx.yml');
@@ -82,8 +99,9 @@ webrtc: yes
 webrtcAddress: :${mediamtx.webrtcPort || 8889}
 webrtcEncryption: no
 webrtcAllowOrigin: '*'
-webrtcLocalUDPAddress: :8189
+webrtcLocalUDPAddress: 0.0.0.0:8189
 webrtcIPsFromInterfaces: yes
+webrtcAdditionalHosts: [${getLocalIPs().join(', ')}]
 
 srt: yes
 srtAddress: :8890
@@ -122,6 +140,23 @@ async function updateConfig(settings) {
 }
 
 /**
+ * Kill any stale MediaMTX processes from previous runs
+ */
+function killStaleProcesses() {
+  try {
+    const pids = execSync('pgrep -f mediamtx', { encoding: 'utf8' }).trim().split('\n');
+    for (const pid of pids) {
+      if (pid && parseInt(pid) !== process.pid) {
+        console.log(`[MediaMTX] Killing stale process ${pid}`);
+        process.kill(parseInt(pid), 'SIGKILL');
+      }
+    }
+  } catch (e) {
+    // pgrep returns non-zero when no processes found — that's fine
+  }
+}
+
+/**
  * Start MediaMTX process
  */
 function start() {
@@ -130,6 +165,7 @@ function start() {
     return;
   }
 
+  killStaleProcesses();
   console.log('[MediaMTX] Starting...');
 
   mediamtxProcess = spawn(BINARY_PATH, [], {
@@ -139,7 +175,11 @@ function start() {
 
   mediamtxProcess.stdout.on('data', (data) => {
     const lines = data.toString().split('\n').filter(l => l.trim());
-    lines.forEach(line => console.log(`[MediaMTX] ${line}`));
+    lines.forEach(line => {
+      if (line.includes('ERR') || line.includes('WAR') || line.includes('listener opened') || line.includes('started') || line.includes('ready') || line.includes('peer connection')) {
+        console.log(`[MediaMTX] ${line}`);
+      }
+    });
   });
 
   mediamtxProcess.stderr.on('data', (data) => {
