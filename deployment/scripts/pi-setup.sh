@@ -23,6 +23,14 @@ NODE_VERSION="20"
 GITHUB_REPO="https://github.com/artman-shane/PTZOpticsVidiuApp.git"
 MEDIAMTX_VERSION="v1.17.0"
 
+# Detect the non-root user who invoked sudo (falls back to first user in /home)
+if [[ -n "$SUDO_USER" && "$SUDO_USER" != "root" ]]; then
+    APP_USER="$SUDO_USER"
+else
+    APP_USER=$(ls /home | head -1)
+fi
+APP_GROUP="$APP_USER"
+
 # Functions
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -137,7 +145,7 @@ install_mediamtx() {
     rm -f /tmp/mediamtx.tar.gz
 
     chmod +x "$MEDIAMTX_DIR/mediamtx"
-    chown -R pi:pi "$MEDIAMTX_DIR"
+    chown -R "$APP_USER:$APP_GROUP" "$MEDIAMTX_DIR"
 
     log_info "MediaMTX installed to $MEDIAMTX_DIR"
 }
@@ -152,7 +160,7 @@ create_directories() {
     mkdir -p "$CLOUDFLARED_DIR"
 
     # Set ownership
-    chown -R pi:pi "$CONFIG_DIR"
+    chown -R "$APP_USER:$APP_GROUP" "$CONFIG_DIR"
 }
 
 install_application() {
@@ -161,7 +169,7 @@ install_application() {
     if [[ -d "$APP_DIR/.git" ]]; then
         log_info "Repository already cloned at $APP_DIR, pulling latest..."
         cd "$APP_DIR"
-        sudo -u pi git pull
+        sudo -u "$APP_USER" git pull
     else
         log_info "Cloning repository from $GITHUB_REPO..."
         # Remove directory if it exists but isn't a git repo
@@ -177,16 +185,16 @@ install_application() {
         fi
 
         git clone "$GITHUB_REPO" "$APP_DIR"
-        chown -R pi:pi "$APP_DIR"
+        chown -R "$APP_USER:$APP_GROUP" "$APP_DIR"
 
         # Restore config backups if they existed
         if [[ -f /tmp/ptz-config-backup.json ]]; then
             cp /tmp/ptz-config-backup.json "$APP_DIR/config.json"
-            chown pi:pi "$APP_DIR/config.json"
+            chown "$APP_USER:$APP_GROUP" "$APP_DIR/config.json"
         fi
         if [[ -f /tmp/ptz-presets-backup.json ]]; then
             cp /tmp/ptz-presets-backup.json "$APP_DIR/presets.json"
-            chown pi:pi "$APP_DIR/presets.json"
+            chown "$APP_USER:$APP_GROUP" "$APP_DIR/presets.json"
         fi
     fi
 
@@ -194,24 +202,24 @@ install_application() {
     if [[ ! -f "$APP_DIR/config.json" ]]; then
         log_info "Creating default config.json from template..."
         cp "$APP_DIR/config.json.example" "$APP_DIR/config.json"
-        chown pi:pi "$APP_DIR/config.json"
+        chown "$APP_USER:$APP_GROUP" "$APP_DIR/config.json"
     fi
 
     # Create default presets if none exists
     if [[ ! -f "$APP_DIR/presets.json" ]]; then
         log_info "Creating default presets.json from template..."
         cp "$APP_DIR/presets.json.example" "$APP_DIR/presets.json"
-        chown pi:pi "$APP_DIR/presets.json"
+        chown "$APP_USER:$APP_GROUP" "$APP_DIR/presets.json"
     fi
 
     # Install npm dependencies
     if [[ -f "$APP_DIR/package.json" ]]; then
         log_info "Installing npm dependencies..."
         cd "$APP_DIR"
-        sudo -u pi npm install --production
+        sudo -u "$APP_USER" npm install --production
     fi
 
-    chown -R pi:pi "$APP_DIR"
+    chown -R "$APP_USER:$APP_GROUP" "$APP_DIR"
 }
 
 install_systemd_services() {
@@ -225,6 +233,10 @@ install_systemd_services() {
         cp "$SYSTEMD_SOURCE/cloudflared.service" /etc/systemd/system/
         # Note: mediamtx.service is NOT installed because the Node.js app
         # manages MediaMTX as a child process (see server/services/mediamtx.js)
+
+        # Patch service file to use the detected user instead of hardcoded 'pi'
+        sed -i "s/^User=pi$/User=$APP_USER/" /etc/systemd/system/ptz-controller.service
+        sed -i "s/^Group=pi$/Group=$APP_GROUP/" /etc/systemd/system/ptz-controller.service
     else
         log_warn "Systemd service files not found at $SYSTEMD_SOURCE"
         log_warn "You'll need to install them manually"

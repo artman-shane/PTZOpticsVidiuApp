@@ -21,6 +21,14 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 APP_DIR="/opt/ptz-controller"
 
+# Detect the non-root user who invoked sudo (falls back to first user in /home)
+if [[ -n "$SUDO_USER" && "$SUDO_USER" != "root" ]]; then
+    APP_USER="$SUDO_USER"
+else
+    APP_USER=$(ls /home | head -1)
+fi
+APP_GROUP="$APP_USER"
+
 # Verify app directory exists and is a git repo
 if [[ ! -d "$APP_DIR/.git" ]]; then
     log_error "$APP_DIR is not a git repository."
@@ -48,36 +56,39 @@ cp "$APP_DIR/presets.json" /tmp/ptz-presets-backup.json 2>/dev/null || true
 # Pull latest code
 log_info "Pulling latest code from GitHub..."
 cd "$APP_DIR"
-sudo -u pi git pull
+sudo -u "$APP_USER" git pull
 
 # Restore config backups (git pull won't touch them since they're
 # in .gitignore, but restore just in case)
 if [[ -f /tmp/ptz-config-backup.json ]]; then
     cp /tmp/ptz-config-backup.json "$APP_DIR/config.json"
-    chown pi:pi "$APP_DIR/config.json"
+    chown "$APP_USER:$APP_GROUP" "$APP_DIR/config.json"
     log_info "Restored config.json"
 fi
 if [[ -f /tmp/ptz-presets-backup.json ]]; then
     cp /tmp/ptz-presets-backup.json "$APP_DIR/presets.json"
-    chown pi:pi "$APP_DIR/presets.json"
+    chown "$APP_USER:$APP_GROUP" "$APP_DIR/presets.json"
     log_info "Restored presets.json"
 fi
 
 # Update npm dependencies
 log_info "Updating npm dependencies..."
 cd "$APP_DIR"
-sudo -u pi npm install --production
+sudo -u "$APP_USER" npm install --production
 
 # Update systemd service files if changed
 log_info "Updating systemd services..."
 if [[ -d "$APP_DIR/deployment/systemd" ]]; then
     cp "$APP_DIR/deployment/systemd/ptz-controller.service" /etc/systemd/system/
     cp "$APP_DIR/deployment/systemd/cloudflared.service" /etc/systemd/system/
+    # Patch service file to use the detected user
+    sed -i "s/^User=pi$/User=$APP_USER/" /etc/systemd/system/ptz-controller.service
+    sed -i "s/^Group=pi$/Group=$APP_GROUP/" /etc/systemd/system/ptz-controller.service
     systemctl daemon-reload
 fi
 
 # Set permissions
-chown -R pi:pi "$APP_DIR"
+chown -R "$APP_USER:$APP_GROUP" "$APP_DIR"
 
 # Restart service
 log_info "Starting ptz-controller service..."
