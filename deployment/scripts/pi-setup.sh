@@ -305,8 +305,9 @@ configure_firewall() {
     ufw allow 8888/tcp comment "MediaMTX HLS"
     ufw allow 8554/tcp comment "MediaMTX RTSP"
 
-    # Verify SSH rule exists before enabling — never lock ourselves out
-    if ! ufw status | grep -q "22/tcp"; then
+    # Verify SSH rule was added before enabling — never lock ourselves out
+    # (ufw status only shows rules when active, so check the rules file directly)
+    if ! grep -q "dport 22" /etc/ufw/user.rules 2>/dev/null; then
         log_error "SSH rule not found in ufw — refusing to enable firewall to avoid lockout"
         log_error "Run 'sudo ufw allow ssh' manually, then 'sudo ufw enable'"
         return 1
