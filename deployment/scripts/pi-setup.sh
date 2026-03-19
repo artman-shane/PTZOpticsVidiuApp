@@ -282,7 +282,7 @@ credentials-file: /etc/cloudflared/TUNNEL_ID.json
 
 ingress:
   - hostname: YOUR_SUBDOMAIN
-    service: http://localhost:3005
+    service: http://localhost:80
   - service: http_status:404
 EOF
     fi
@@ -300,7 +300,7 @@ configure_firewall() {
     # Add all rules BEFORE enabling the firewall
     ufw default allow outgoing
     ufw allow ssh
-    ufw allow 3005/tcp comment "PTZ Controller web UI"
+    ufw allow 80/tcp comment "PTZ Controller web UI"
     ufw allow 8889/tcp comment "MediaMTX WebRTC"
     ufw allow 8888/tcp comment "MediaMTX HLS"
     ufw allow 8554/tcp comment "MediaMTX RTSP"
@@ -316,7 +316,7 @@ configure_firewall() {
     # Safe to enable now that all rules are confirmed
     ufw --force enable
 
-    log_info "Firewall enabled with ports open: 22 (SSH), 3005 (web UI), 8889 (WebRTC), 8888 (HLS), 8554 (RTSP)"
+    log_info "Firewall enabled with ports open: 22 (SSH), 80 (web UI), 8889 (WebRTC), 8888 (HLS), 8554 (RTSP)"
 }
 
 print_next_steps() {
@@ -334,7 +334,7 @@ print_next_steps() {
     echo "   sudo systemctl start ptz-controller"
     echo ""
     echo "3. Verify it's running:"
-    echo "   curl http://localhost:3005/api/health"
+    echo "   curl http://localhost:80/api/health"
     echo ""
     echo "4. (Optional) Set up Cloudflare Tunnel:"
     echo "   cloudflared tunnel login"

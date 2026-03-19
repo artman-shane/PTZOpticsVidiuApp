@@ -13,7 +13,7 @@
     "password": "admin"
   },
   "server": {
-    "port": 3005
+    "port": 80
   },
   "mediamtx": {
     "webrtcPort": 8889,

@@ -100,7 +100,7 @@ credentials-file: $CLOUDFLARED_DIR/${TUNNEL_ID}.json
 
 ingress:
   - hostname: $SUBDOMAIN
-    service: http://localhost:3005
+    service: http://localhost:80
   - service: http_status:404
 EOF
 
