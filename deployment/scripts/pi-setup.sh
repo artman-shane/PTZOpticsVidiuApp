@@ -277,29 +277,32 @@ EOF
 }
 
 configure_firewall() {
-    log_info "Configuring firewall (optional)..."
+    log_info "Configuring firewall..."
 
-    # Check if ufw is installed
+    # Install ufw if not present
     if ! command -v ufw &> /dev/null; then
-        log_info "ufw not installed, skipping firewall configuration"
-        return
+        log_info "Installing ufw..."
+        apt-get install -y ufw
     fi
 
-    # Allow outbound (for tunnel)
+    # Allow outbound traffic
     ufw default allow outgoing
 
-    # Allow SSH (important!)
+    # Allow SSH (critical - don't lock yourself out!)
     ufw allow ssh
 
-    # Allow local network access to services (optional, for local testing)
-    ufw allow from 192.168.0.0/16 to any port 3005
-    ufw allow from 192.168.0.0/16 to any port 8889
-    ufw allow from 10.0.0.0/8 to any port 3005
-    ufw allow from 10.0.0.0/8 to any port 8889
+    # Allow PTZ Controller web UI (port 3005) from any source
+    ufw allow 3005/tcp comment "PTZ Controller web UI"
 
-    # Don't enable automatically - let user decide
-    log_info "Firewall rules configured but not enabled"
-    log_info "Run 'sudo ufw enable' to activate firewall"
+    # Allow MediaMTX ports for video streaming
+    ufw allow 8889/tcp comment "MediaMTX WebRTC"
+    ufw allow 8888/tcp comment "MediaMTX HLS"
+    ufw allow 8554/tcp comment "MediaMTX RTSP"
+
+    # Enable firewall (--force skips the interactive prompt)
+    ufw --force enable
+
+    log_info "Firewall enabled with ports open: 22 (SSH), 3005 (web UI), 8889 (WebRTC), 8888 (HLS), 8554 (RTSP)"
 }
 
 print_next_steps() {

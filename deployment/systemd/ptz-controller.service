@@ -1,6 +1,6 @@
 [Unit]
 Description=PTZ Camera and Vidiu Controller Server
-Documentation=https://github.com/yourusername/ptz-vidiu-controller
+Documentation=https://github.com/artman-shane/PTZOpticsVidiuApp
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -18,11 +18,11 @@ EnvironmentFile=-/etc/ptz-controller/site.env
 # Start the application
 ExecStart=/usr/bin/node start.js
 
-# Restart configuration
+# Restart configuration - always restart on crash, with increasing delay
 Restart=always
-RestartSec=10
-StartLimitIntervalSec=60
-StartLimitBurst=3
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 # Security hardening
 NoNewPrivileges=true
