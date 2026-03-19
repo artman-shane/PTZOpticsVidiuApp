@@ -1,0 +1,58 @@
+# Cloudflare Tunnel Configuration Template
+#
+# Instructions:
+# 1. Create a tunnel: cloudflared tunnel create <site-name>
+# 2. Copy this file to /etc/cloudflared/config.yml
+# 3. Replace TUNNEL_ID with your tunnel ID
+# 4. Replace YOUR_SUBDOMAIN with your subdomain (e.g., winder.example.com)
+# 5. Copy credentials file to /etc/cloudflared/
+#
+# Or use the tunnel-setup.sh script to automate this process.
+
+# Your tunnel ID (UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+tunnel: TUNNEL_ID
+
+# Path to credentials file
+credentials-file: /etc/cloudflared/TUNNEL_ID.json
+
+# Optional: Enable QUIC protocol for better performance
+# protocol: quic
+
+# Optional: Metrics endpoint for monitoring
+# metrics: localhost:8080
+
+# Ingress rules - how to route incoming requests
+ingress:
+  # Route all traffic for your subdomain to the local PTZ Controller
+  - hostname: YOUR_SUBDOMAIN
+    service: http://localhost:3005
+    # Optional: Configure origin settings
+    # originRequest:
+    #   connectTimeout: 30s
+    #   noTLSVerify: false
+    #   httpHostHeader: ""
+
+  # Catch-all rule (required) - returns 404 for unmatched requests
+  - service: http_status:404
+
+# Advanced configuration examples (uncomment as needed):
+#
+# Multiple services on different paths:
+# ingress:
+#   - hostname: site.example.com
+#     path: /api/*
+#     service: http://localhost:3005
+#   - hostname: site.example.com
+#     path: /video/*
+#     service: http://localhost:8889
+#   - hostname: site.example.com
+#     service: http://localhost:3005
+#   - service: http_status:404
+#
+# WebSocket support (enabled by default):
+# ingress:
+#   - hostname: site.example.com
+#     service: http://localhost:3005
+#     originRequest:
+#       noTLSVerify: true
+#   - service: http_status:404

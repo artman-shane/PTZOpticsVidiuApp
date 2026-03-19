@@ -1,0 +1,44 @@
+[Unit]
+Description=PTZ Camera and Vidiu Controller Server
+Documentation=https://github.com/yourusername/ptz-vidiu-controller
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/ptz-controller
+
+# Environment configuration
+Environment=NODE_ENV=production
+Environment=PORT=3005
+EnvironmentFile=-/etc/ptz-controller/site.env
+
+# Start the application
+ExecStart=/usr/bin/node start.js
+
+# Restart configuration
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/opt/ptz-controller
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ptz-controller
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+[Unit]
+Description=MediaMTX RTSP/WebRTC Media Server
+Documentation=https://github.com/bluenviron/mediamtx
+After=network.target
+Before=ptz-controller.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/ptz-controller/mediamtx
+
+# Start MediaMTX
+ExecStart=/opt/ptz-controller/mediamtx/mediamtx /opt/ptz-controller/mediamtx/mediamtx.yml
+
+# Restart configuration
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+# Resource limits (video transcoding needs more resources)
+MemoryMax=512M
+CPUQuota=90%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mediamtx
+
+[Install]
+WantedBy=multi-user.target

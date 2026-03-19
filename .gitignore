@@ -25,3 +25,7 @@ build/
 
 # MediaMTX binary (platform-specific)
 mediamtx/mediamtx
+
+# Site-specific configuration (use .example files as templates)
+config.json
+presets.json
