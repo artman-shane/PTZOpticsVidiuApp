@@ -367,8 +367,8 @@ main() {
     install_nodejs
     install_cloudflared
     create_directories
-    install_mediamtx
     install_application
+    install_mediamtx
     install_systemd_services
     create_default_config
     configure_firewall
