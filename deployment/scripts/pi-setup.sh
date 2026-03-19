@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 APP_DIR="/opt/ptz-controller"
 CONFIG_DIR="/etc/ptz-controller"
 CLOUDFLARED_DIR="/etc/cloudflared"
-NODE_VERSION="18"
+NODE_VERSION="20"
 GITHUB_REPO="https://github.com/artman-shane/PTZOpticsVidiuApp.git"
 MEDIAMTX_VERSION="v1.17.0"
 
