@@ -285,21 +285,22 @@ configure_firewall() {
         apt-get install -y ufw
     fi
 
-    # Allow outbound traffic
+    # Add all rules BEFORE enabling the firewall
     ufw default allow outgoing
-
-    # Allow SSH (critical - don't lock yourself out!)
     ufw allow ssh
-
-    # Allow PTZ Controller web UI (port 3005) from any source
     ufw allow 3005/tcp comment "PTZ Controller web UI"
-
-    # Allow MediaMTX ports for video streaming
     ufw allow 8889/tcp comment "MediaMTX WebRTC"
     ufw allow 8888/tcp comment "MediaMTX HLS"
     ufw allow 8554/tcp comment "MediaMTX RTSP"
 
-    # Enable firewall (--force skips the interactive prompt)
+    # Verify SSH rule exists before enabling — never lock ourselves out
+    if ! ufw status | grep -q "22/tcp"; then
+        log_error "SSH rule not found in ufw — refusing to enable firewall to avoid lockout"
+        log_error "Run 'sudo ufw allow ssh' manually, then 'sudo ufw enable'"
+        return 1
+    fi
+
+    # Safe to enable now that all rules are confirmed
     ufw --force enable
 
     log_info "Firewall enabled with ports open: 22 (SSH), 3005 (web UI), 8889 (WebRTC), 8888 (HLS), 8554 (RTSP)"
